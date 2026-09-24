@@ -6,3 +6,6 @@
 
 /** 阶段 0 占位：协议类型入口 */
 export const protocolVersion = "0.0.0";
+
+// 通讯协议的返回形状 Schema（定义在 core，此处 re-export 供前端使用方统一引入）
+export type { ISchema, SchemaNode, SchemaScalarType } from "@trellis/core";

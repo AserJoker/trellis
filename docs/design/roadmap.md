@@ -57,15 +57,26 @@
 - 关系解析：thisField/thatField/relatedModelId/junctionModelId 的导航逻辑
 - 中间模型处理（O2O/M2M 的 junction 表读写）
 - 数据清洗：类型映射（业务类型 → 逻辑类型 → 存储形态）
+- DAO 层：基于元数据封装 create/update/delete/queryOne/queryList/queryPage
+- 事务：数据源层 withTransaction 快照回滚（T3 内存实现）
+- schema 形状：返回形状（类 JSON Schema 仅形状无约束）+ 白名单裁剪递归查询
+- 级联写入：applyRecord(modelId, schema, record) 依据 model 推导 create/update/delete，一次事务应用
+- $delete 删除语义：顶层真实删除（O2M 级联）；M2O/O2O/M2M 仅解除关联/删关系
 
 **验收标准**
-- [ ] user → auth 的 M2O 查询返回聚合后的 user.auth 对象
-- [ ] O2M / O2O / M2M 各自递归聚合正确
-- [ ] 类型映射正确（例：「金融」类型 → 字符串高精度数字存取）
-- [ ] 复杂字段 store=false 不落库，查询时聚合返回
+- [x] user → auth 的 M2O 查询返回聚合后的 user.auth 对象
+- [x] O2M / O2O / M2M 各自递归聚合正确
+- [x] 类型映射正确（例：「金融」类型 → 字符串高精度数字存取）
+- [x] 复杂字段 store=false 不落库，查询时聚合返回
+- [x] DAO 六操作基于元数据工作，create 自动生成主键、清洗剔除复杂字段
+- [x] 事务失败全量回滚、成功原子提交
+- [x] schema 白名单裁剪 + 关系按子形状递归聚合
+- [x] applyRecord 级联写入一次事务应用，失败整体回滚
+- [x] $delete：顶层真实删除 + O2M 级联；M2M 只删关系不删数据
 
 **临时措施**
 - [T] 查询直接内存/JSON 遍历；**待后续**：基于存储适配器优化（阶段 5）
+- [T] 事务为内存快照回滚；**待后续**：映射数据库原生事务（阶段 5）
 
 ---
 
@@ -160,6 +171,7 @@
 | T1 | JSON 文件存储为唯一存储实现 | 1 | 存储接口抽象 + 数据库适配器（5） |
 | T2 | 手写简单校验 | 1 | 基于 Model 元数据驱动的自研校验（2/5） |
 | T3 | 查询内存/JSON 直接遍历 | 2 | 基于存储适配器优化（5） |
+| T3b | 事务为内存快照回滚 | 2 | 映射数据库原生事务（5） |
 | T4 | 编排解释器同步实现 | 3 | 异步/并发/错误处理/审计（5） |
 | T5 | 手写协议请求封装 | 4 | 协议规范化：批处理/缓存/订阅（5） |
 | T6 | 前端最小路由/状态 | 4 | 完善（5） |
