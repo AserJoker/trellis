@@ -1,0 +1,25 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+lib/
+build/
+
+# lockfiles — 受限环境不提交，携带本机环境信息
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+
+# env / local config — 环境相关信息不提交
+.env
+.env.*
+*.local
+
+# tooling
+.cac/
+.codegraph/
+
+# logs
+*.log
+npm-debug.log*
