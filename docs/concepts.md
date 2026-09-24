@@ -75,7 +75,7 @@ interface Model {
 - 本侧关系字段（`thisField`）
 - 对侧关系字段（`thatField`）
 - 关系模型 id（`relatedModelId`）
-- 中间模型 id（`junctionModelId`）—— 仅 One2One / One2Many 使用
+- 中间模型 id（`junctionModelId`）—— 仅 One2One / Many2Many 使用
 
 **自举一致性**
 
