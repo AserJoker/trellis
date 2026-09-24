@@ -15,7 +15,7 @@
 **目标**：确立 monorepo 结构、工具链、设计文档骨架，为后续阶段打底。
 
 **做什么**
-- monorepo 结构：`packages/core`（元数据核心）、`packages/storage-json`（JSON 存储）、`packages/backend`（后端运行时）、`packages/frontend`（前端）、`packages/protocol`（通讯协议类型）
+- monorepo 结构（core 集中式）：`packages/core`（元数据 + 查询聚合引擎 + function 编排引擎）、`packages/backend`（后端运行时）、`packages/frontend`（前端）、`packages/storage`（存储适配，JSON 起步）、`packages/protocol`（通讯协议类型）
 - TS 工具链：tsconfig 继承链、构建脚本
 - 设计文档骨架落盘（本文件 + backend/frontend/protocol 占位骨架）
 
@@ -32,9 +32,9 @@
 **目标**：Model/Field/Function 的定义、注册、序列化落地，验证自举（Model 的 Model）。
 
 **做什么**
-- `core`：Model/Field/Function/Type 的类型定义与校验
+- `core`：Model/Field/Function/Type 的类型定义与校验（查询/编排引擎在 core 但本阶段不实现）
 - 系统模型（ModelModel / FieldModel / FunctionModel / TypeModel / 国际化 Model）的定义
-- `storage-json`：JSON 序列化落盘（管理面元数据持久化）
+- `storage`：JSON 序列化落盘（管理面元数据持久化）
 - 元数据注册表：装载/查询/校验 Model 定义
 
 **验收标准**
@@ -44,7 +44,7 @@
 
 **临时措施**
 - [T] JSON 文件存储为正式存储的唯一实现；**待后续**：抽象存储接口 + 数据库适配器（阶段 5）
-- [T] 校验用简单手写校验；**待后续**：内置 JSON Schema 校验器或自研校验（阶段 2/5）
+- [T] 校验用简单手写校验；**待后续**：基于 Model 元数据驱动的自研校验（阶段 2/5）
 
 ---
 
@@ -121,7 +121,7 @@
 - 存储层抽象：存储接口 + JSON/数据库多适配器
 - 协议完善：批处理、缓存、错误语义
 - 编排引擎完善：异步/并发/错误处理/审计
-- 校验器完善：内置零依赖 JSON Schema 校验器（或自研）
+- 校验器完善：基于 Model 元数据驱动的自研校验
 - 模块化初步：热拔插模块机制（元数据 + 前后端代码插件）
 
 **验收标准**
@@ -158,7 +158,7 @@
 | 编号 | 临时措施 | 引入阶段 | 待后续完善（阶段） |
 |------|----------|----------|---------------------|
 | T1 | JSON 文件存储为唯一存储实现 | 1 | 存储接口抽象 + 数据库适配器（5） |
-| T2 | 手写简单校验 | 1 | 零依赖 JSON Schema 校验器 / 自研（2/5） |
+| T2 | 手写简单校验 | 1 | 基于 Model 元数据驱动的自研校验（2/5） |
 | T3 | 查询内存/JSON 直接遍历 | 2 | 基于存储适配器优化（5） |
 | T4 | 编排解释器同步实现 | 3 | 异步/并发/错误处理/审计（5） |
 | T5 | 手写协议请求封装 | 4 | 协议规范化：批处理/缓存/订阅（5） |
