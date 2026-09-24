@@ -62,7 +62,7 @@ test("复杂字段 store 必须为 false", () => {
 
 test("简单字段默认 store=true，显式 false 报错", () => {
   const bad = makeUserModel();
-  bad.fields[1] = { ...bad.fields[1], store: false };
+  bad.fields[1] = { ...bad.fields[1], store: false } as IModel["fields"][number];
   const result = validateModel(bad);
   assert.equal(result.valid, false);
   assert.ok(result.issues.some((i) => i.message.includes("store 默认 true")));
