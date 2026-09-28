@@ -37,9 +37,9 @@
 
 ```typescript
 interface IBase {
-  id: string;        // 全局唯一
-  namespace: string; // 命名空间
-  name: string;      // 模型名
+  id: string;        // 点分路径：父级id + "." + name
+  namespace: string; // 父级 id（顶层为真正的命名空间，如 "sys" 或业务模块名，不为空）
+  name: string;      // 自身名称
   displayName?: string; // 国际化 key（可选）
 }
 
@@ -53,7 +53,14 @@ interface IModel extends IBase {
 
 三大部分：**① 元数据区**（IBase + primaryField + virtual）、**② fields**（字段定义）、**③ functions**（行为函数定义）。
 
-所有系统模型（Model/Field/Type/Function 等）共享 `IBase` 基础元数据：`id`（全局唯一）、`namespace`（命名空间）、`name`（模型名）、`displayName`（国际化 key，非直接显示文本）。
+**id 点分路径规则**：
+
+- `id = 父级id + "." + 自身name`；顶层对象的父级为真正的命名空间（`sys`、业务模块名，不为空）。
+- `namespace` 字段存**父级 id**（不是顶层命名空间）。
+- 例：model `sys.user`（namespace="sys", name="user"）；其 field `username` → namespace="sys.user"、name="username"、id="sys.user.username"。
+- **唯一性**：不同类型、不同所属的对象必然唯一——field/function 的 namespace 是所属 model 的 id，路径层级 + 类型归属双重保证。
+
+所有系统模型（Model/Field/Type/Function 等）共享 `IBase` 基础元数据，`id` 均为点分路径。
 
 ### 2a. virtual Model：绑定代码对象的模型
 
@@ -119,20 +126,20 @@ interface IComplexField extends IBaseField {
   type: "one2many" | "many2one" | "one2one" | "many2many";
   relationField: string;    // 本侧关系字段
   referenceField: string;   // 对侧关系字段
-  referenceModel: string;   // 对侧模型 id（引 id，全局唯一）
+  referenceModel: string;   // 对侧模型完整 id（点分路径）
   store?: false;            // 复杂字段强制不落库
 }
 
 interface IRelationField extends IComplexField {
   type: "many2many" | "one2one";
-  associationModel: string; // 中间模型 id（仅 O2O/M2M 使用）
+  associationModel: string; // 中间模型完整 id（仅 O2O/M2M 使用）
 }
 ```
 
 - 本侧关系字段（`relationField`）：如 user 侧声明 `auth` 字段，`relationField="authId"`。
 - 对侧关系字段（`referenceField`）：如 `referenceField="id"`（对侧 auth 的主键）。
-- 对侧模型（`referenceModel`）：引对侧 Model 的 **id**。
-- 中间模型（`associationModel`）：仅 `One2One` / `Many2Many` 使用，引中间 Model 的 **id**。
+- 对侧模型（`referenceModel`）：引对侧 Model 的**完整 id**（点分路径，如 `"sys.user"`）。
+- 中间模型（`associationModel`）：仅 `One2One` / `Many2Many` 使用，引中间 Model 的**完整 id**。
 
 **自举一致性**
 
@@ -275,15 +282,50 @@ interface IRelationField extends IComplexField {
 
 ### 5. 前后端通讯
 
-- 数据协议**类似 GraphQL**，但**自己实现**，强调**轻量**。
-- 后端依据**前端数据地图（data map）**做**递归查询**：
-  - 按前端声明的数据需求，递归遍历**复杂字段**。
-  - **聚合 + 清洗**数据后返回。
+数据协议**类似 GraphQL**，但**自己实现**，强调**轻量**。后端依据**前端数据地图（data map）**做**递归查询**：按前端声明的数据需求，递归遍历**复杂字段**，**聚合 + 清洗**数据后返回。
 
 **推论**
 
 - 数据地图 ≈ 前端的查询需求声明（类 GraphQL 的选择集）。
 - 复杂字段的物理不存在性 + 递归聚合在这里落地：后端查询引擎根据 Model 关系图递归装配数据。
+
+#### 5a. 通讯协议（方法 / URL / 错误语义）
+
+- **仅 GET / POST 两种 method**（业务约束，技术不约束）：
+  - **GET**：数据查询（query）。
+  - **POST**：非查询（create/update/delete、function 调用）。
+- **URL**：`/namespace/name`——model 的两个字段（namespace + name）直查，如 `/sys/user`。
+- **错误语义**：
+  - **业务错误从响应体返回**（HTTP 200）：如校验失败、主键冲突、$delete 目标不存在。
+  - **系统错误才设置 HTTP 状态码**：如 404（路由不存在）、500（引擎内部异常）。
+
+#### 5b. 请求 / 响应正文
+
+- **请求正文一定是对象**，格式 `{ <function_id>: <param> }`：
+  - 例：`{ createOne: { ... }, updateOne: { ... } }`。
+  - `<function_id>` 相对 **URL 中描述的 model**：一个页面必然对应一个 model（model 与 view 是 **O2M**，多个 view 呈现一个 model 的数据），请求体键名基于该 model 下的 function。
+- **响应正文统一 `{ ok }` 包裹**：
+  - 成功：`{ ok: true, data: { createOne: { ... }, updateOne: { ... } } }`——data 以请求的 function_id 为键，逐个返回结果。
+  - 失败：`{ ok: false, code, message }`——**无 data**，整体失败，无部分成功概念。
+
+#### 5c. 事务语义
+
+- **一次请求 = 一次完整事务**：请求内所有 function 在同一事务中执行，全部成功才 commit，任一失败整体回滚。
+- **前端依靠 model 关系推算本次事务需要的 function 集合**：一次交互涉及多个 model 时，前端按关系图把所需的 create/update/query 等一并放入同一请求体。
+- **嵌套数据携带关联关系**：createOne/updateOne 的参数可嵌套携带关联数据，级联写入（事务保证原子性）。
+
+#### 5d. $delete 特殊字段
+
+- **仅 updateOne 内使用**：`updateOne(modelId, { id, $delete: true })` ≡ `deleteOne(modelId, { id })`。
+- 语义：update 语义内表达删除，便于嵌套结构中就地删除关联记录（删除目标由 record 内主键定位）。
+
+#### 5e. 内建 function（白名单声明）
+
+- `createOne` / `updateOne` / `deleteOne` / `query` 是**预制 function**：注册 model 时**内建注册**（无 edges / entry / output / input），引擎拦截执行 native 操作。
+- **model 中需白名单声明，不声明就不挂**：model 的 functions 列表声明了哪些内建操作，该 model 才对外开放哪些——未声明的内建操作不可通过请求正文调用。
+- 内建 function 与普通 function / native function 以同一 function_id 命名空间共存，引擎按注册表分派（内建 → 拦截执行；编排 → 图执行；native → 直接调用）。
+
+**待设计**：白名单声明的具体字段形态（如何区分内建引用与普通 function 定义）、内建 function 的输入/输出形状。
 - "清洗"暗示后端在聚合过程中做数据规范化/转换（字段裁剪、枚举归一等）。
 
 ### 6. 管理面（元数据自管理）
@@ -331,6 +373,8 @@ interface IRelationField extends IComplexField {
 （无）
 
 已确认的开放问题：
+- id 点分路径：`id = 父级id + "." + name`；顶层 namespace 为真正的命名空间（sys/业务模块名，不为空）；namespace 字段存父级 id。不同类型不同所属的对象必然唯一。
+- referenceModel/associationModel 存目标 model 的完整 id（点分路径）。
 - One2One 走中间表（associationModel）。
 - 字段按类型区分（simple/enum/complex/relation），不是统一四键。
 - 简单字段默认 store = true；复杂字段 store 强制 false。
@@ -342,3 +386,8 @@ interface IRelationField extends IComplexField {
 - Function 编排：有向图（数据流触发 AND 汇聚，控制流降维为数据流），IAtomNode 不入库且无状态，output 节点全部 outputs 合并为返回值，执行错误捕获返回；惰性调度（等待是同步状态，引擎不预建 Promise 等待器，output 完成后 abort 活动执行）。
 - virtual Model：virtual=true 不建表、纯内存无持久化；绑定 class（引擎注册表 model.id→class）；function 为 native（edges 空/entry/output 空串），经特殊原子操作 Call 以平等 Function 引用调用。
 - 装饰器声明：@Meta.Model/@Meta.Field/@Meta.Function（TS 新标准）仅服务 virtual model，收集器在 require 求值时提取元数据入引擎注册表（纯内存）；目录动态 require 即装载。
+- 通讯协议：仅 GET/POST（GET 查询、POST 非查询）；URL 为 `/namespace/name`（model 两字段直查）；业务错误从响应体返回（HTTP 200）、系统错误才设 HTTP 状态码；响应统一 `{ ok }` 包裹。
+- 请求正文：`{ <function_id>: <param> }`（function_id 相对 URL 中描述的 model，model 与 view 是 O2M）；成功响应 `{ ok:true, data: { <function_id>: <result> } }`，失败 `{ ok:false, code, message }` 无 data（无部分成功概念）。
+- 事务语义：一次请求 = 一次完整事务，全部成功 commit、任一失败整体回滚；前端靠 model 关系推算本次事务的 function 集合；createOne/updateOne 参数可嵌套携带关联关系级联写入。
+- $delete：仅 updateOne 内使用，`updateOne(modelId, {id, $delete:true})` ≡ `deleteOne(modelId, {id})`。
+- 内建 function：createOne/updateOne/deleteOne/query 为预制 function，注册 model 时内建注册（无 edges/entry/output/input），引擎拦截执行 native 操作；model 需白名单声明，不声明不挂。

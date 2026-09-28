@@ -35,11 +35,13 @@ export interface IComplexField extends IBaseField {
   type: "one2many" | "many2one" | "one2one" | "many2many";
   relationField: string;
   referenceField: string;
+  /** 对侧 Model 的完整 id（点分路径，如 "sys.user"）。 */
   referenceModel: string;
   store?: false;
 }
 export interface IRelationField extends IComplexField {
   type: "many2many" | "one2one";
+  /** 中间 Model 的完整 id（点分路径）。 */
   associationModel: string;
 }
 export type IField = ISimpleField | IEnumField | IComplexField | IRelationField;
