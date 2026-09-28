@@ -56,8 +56,16 @@ export interface IFunctionEdge extends IBase {
  * - 无需在元数据区分 native/编排：function.id 全局唯一，注册表即权威。
  * - 被调用方式：编排图通过特殊原子操作 Call（携带 function.id 引用），
  *   以平等的 Function 引用调用普通或 native function。
+ *
+ * 执行位置：
+ * - local = true：前端执行（前端运行时引擎直接运行，无需网络请求）。
+ * - local = false / 缺省：后端执行（前端把调用封装成请求发往后端）。
+ * - 执行位置是硬约束：local = true 的 function 只能被前端引擎执行，
+ *   后端引擎（编排图 Call、请求正文调用）引用它即报错。
+ * - 内建数据操作（createOne/updateOne/deleteOne/query）固定后端执行，不声明 local。
  */
 export interface IFunction extends IBase {
+  local?: boolean;
   edges: IFunctionEdge[];
   entry: string;
   output: string;

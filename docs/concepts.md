@@ -255,13 +255,16 @@ interface IRelationField extends IComplexField {
 ### 3. Function 的执行位置（前端/后端）
 
 - function 区分**前端执行**与**后端执行**。
-- **前端执行**：function 直接在前端运行逻辑（无需网络请求）。
-- **后端执行**：前端需把调用**封装成请求**发往后端执行。
+- **执行位置是 function 元数据的声明属性**：`local` 字段。
+  - **`local = true`**：前端执行——function 直接在前端运行逻辑（无需网络请求），由前端运行时引擎执行。
+  - **`local = false` / 缺省**：后端执行——前端把调用**封装成请求**发往后端执行。
+- **内建数据操作固定后端执行**：createOne/updateOne/deleteOne/query 依赖后端 store，不声明 local。
+- **执行位置是硬约束**：`local = true` 的 function 只能被前端引擎执行，后端引擎（编排图 Call、请求正文调用）引用它即报错——执行位置声明决定实现位置，跨端引用显式失败（防实现缺失）。
 
 **推论**
 
-- function 的执行位置是其元数据的一部分（声明属性）。
-- 前端运行时需要一套执行前端 function 的引擎。
+- 前端运行时需要一套执行前端 function 的引擎（执行 local=true 的 function）。
+- 例：`<Button on-click="model.login">` 点击时——`login.local=true` 则前端引擎本地执行；`local=false` 则发 `POST /sys/user { login: {...} }` 后端执行。
 
 ### 4. 组件架构：无头组件（Headless）两层模型
 
@@ -451,3 +454,4 @@ interface IRelationField extends IComplexField {
 - $delete：仅 updateOne 内使用，`updateOne(modelId, {id, $delete:true})` ≡ `deleteOne(modelId, {id})`。
 - 内建 function：createOne/updateOne/deleteOne/query 为预制 function，注册 model 时内建注册（无 edges/entry/output/input），引擎拦截执行 native 操作；model 需白名单声明，不声明不挂。
 - schema 子协议：内置 CRUD 接口的返回结构描述，采用去除校验的完整 JSONSchema 风格（每字段写 type）；对象 → O2O/M2O、数组 → M2M/O2M；`query(schema, condition, option)` 先查第一层再按 record+schema 递归装配；分页放 option 且按 model 分键 `{ <model.id>: <option> }`；CRUD 全部复用；服务端解析时做形状一致性校验（类型/字段与 Model 不匹配即报错，防前后端不配套）。
+- 执行位置：IFunction 新增 local 字段——local=true 前端执行、local=false/缺省后端执行；内建数据操作固定后端执行；local=true 是硬约束（后端引擎引用即报错）。
