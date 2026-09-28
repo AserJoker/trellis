@@ -219,6 +219,25 @@ interface IRelationField extends IComplexField {
 - 原子操作是引擎注册的代码能力（无状态、不入库），编排图把它们组织成可复用 function。
 - 控制流 = 选择性输出 + 令牌分发：不需要特殊的控制流语法或环，图保持纯数据流。
 
+### 6a. FunctionExecutor：Function 的逻辑执行器
+
+- **职责**：执行 IFunction 编排图。本质是**无副作用的纯执行器**——副作用全部来自外部注入的 `deps` 和原子接口（IAtomNode），执行器自身不碰任何 IO/状态。
+- **命名**：不叫 Engine（太泛），就是 Function 的执行器——`FunctionExecutor`，`createFunctionExecutor()`。
+- **API**：
+  - `registerAtom(node)`：注册原子操作（id 重复报错）。
+  - `registerFunction(fn)`：注册 function（id 重复报错）。
+  - `execute(id, params)`：执行 function，resolve output 节点全部 outputs 字段合并；params 直接作为 entry 节点的 input。
+- **节点状态（槽位状态机）**：每节点维护 `slots`（已收到入边值）+ `missing`（未就绪入边字段）+ `status`（pending/running/done/aborted）+ `emitted`（本节点 emit 过的输出字段）。
+- **AND 汇聚**：`missing` 为空即就绪；任一入边缺 → 保持等待。等待是**纯同步状态**（只有 slots/missing 数据），**不创建任何 Promise 等待器**——未就绪节点零异步资源，无泄漏。
+- **emit 同步路由**：节点 fn 中 `ctx.emit(field, value)` 是同步操作——记录 emitted、沿出边填下游槽位、下游就绪则入 readyQueue。**派发用微任务**（避免 emit 深递归导致调用栈溢出）。
+- **output 完成 + abort**：output 节点 done → 其 emitted 全部字段合并作为返回值；同时 `controller.abort()` 终止全部活动执行（并行分支被取消）。**一次 execute 一个共享 AbortController**，所有节点 ctx.signal 共用。
+- **deps 注入**：`createFunctionExecutor<D>(deps)` 持有 deps，每个执行上下文 `ctx.deps` 直接引用（类型由 D 声明）。
+- **错误处理**：fn 抛错/reject → 捕获 → 整个 function 失败 → resolve `{ error: { message, nodeId } }`，不向外抛；abort 导致的提前返回不算错误（正常取消）。
+- **与通讯协议衔接**：错误形状 `{ error: {...} }` 由 server 映射为协议层 `{ ok:false, code, message }`。
+
+**本版范围**：注册表 + 图校验（entry/output/边引用节点都在原子注册表）+ execute + AND 汇聚 + emit 同步路由 + output 完成/abort + deps + 错误捕获 + entry 参数注入。
+**留待后续**：`Call` 原子（编排图调 function）、环/死锁检测、执行超时、图校验增强。
+
 ### 7. 系统模型的公共基础元数据（IBase）
 
 - **所有系统模型**均继承 `IBase`：
@@ -465,3 +484,4 @@ interface IRelationField extends IComplexField {
 - schema 子协议：内置 CRUD 接口的返回结构描述，采用去除校验的完整 JSONSchema 风格（每字段写 type）；对象 → O2O/M2O、数组 → M2M/O2M；`query(schema, condition, option)` 先查第一层再按 record+schema 递归装配；分页放 option 且按 model 分键 `{ <model.id>: <option> }`；CRUD 全部复用；服务端解析时做形状一致性校验（类型/字段与 Model 不匹配即报错，防前后端不配套）。
 - 执行位置：IFunction 新增 local 字段——local=true 前端本地执行、local=false/缺省以 function_id 为 key 调接口（后端执行）；内建数据操作固定后端执行；local 仅作路由决策与原子注册表无关；前后端引擎完全一致仅注册的原子接口不同（后端 IO 类、前端界面类）。
 - 执行上下文注入：IExecContext 泛型化 `IExecContext<D>`（D extends Record<string, unknown>），新增 `ctx.deps: D` 容器承载宿主注入物（后端 store、前端 history）；引擎启动注册注入物，每次执行统一注入。
+- FunctionExecutor：Function 逻辑执行器（不叫 Engine）——无副作用纯执行器；节点槽位状态机（slots/missing/status/emitted）；emit 同步路由 + 微任务派发；output 完成合并返回值 + 共享 AbortController abort 活动执行；deps 泛型注入；错误捕获返回 `{ error: { message, nodeId } }`。
