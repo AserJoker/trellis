@@ -4,3 +4,4 @@ export * from "./IModel.js";
 export * from "./IFunction.js";
 export * from "./IStore.js";
 export * from "./FunctionExecutor.js";
+export * from "./atoms/index.js";
