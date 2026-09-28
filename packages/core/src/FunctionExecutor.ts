@@ -45,9 +45,6 @@ export function createFunctionExecutor<D extends Record<string, unknown>>(
   const atoms = new Map<string, IAtomNode>();
   const functions = new Map<string, IFunction>();
 
-  // 下游节点索引：nodeId → 出边列表（fromNode 维度预建，emit 时免全图扫描）
-  const outgoing = new Map<string, IFunction["edges"][number][]>();
-
   function buildGraph(fn: IFunction): {
     nodes: Map<string, NodeState>;
     outgoing: Map<string, IFunction["edges"][number][]>;

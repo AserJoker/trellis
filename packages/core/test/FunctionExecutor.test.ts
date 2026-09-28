@@ -6,7 +6,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createFunctionExecutor, type IAtomNode } from "../dist/index.js";
-
 // 常量节点：无入边，emit 一个固定值
 function constAtom(value: unknown): IAtomNode {
   return {
