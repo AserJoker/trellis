@@ -45,14 +45,50 @@ interface IBase {
 
 interface IModel extends IBase {
   primaryField: string;  // 主键字段名
+  virtual?: boolean;     // true = 不建表，绑定代码 class（见 2a 节）
   fields: IField[];      // 字段定义
   functions: IFunction[]; // 行为函数定义
 }
 ```
 
-三大部分：**① 元数据区**（IBase + primaryField）、**② fields**（字段定义）、**③ functions**（行为函数定义）。
+三大部分：**① 元数据区**（IBase + primaryField + virtual）、**② fields**（字段定义）、**③ functions**（行为函数定义）。
 
 所有系统模型（Model/Field/Type/Function 等）共享 `IBase` 基础元数据：`id`（全局唯一）、`namespace`（命名空间）、`name`（模型名）、`displayName`（国际化 key，非直接显示文本）。
+
+### 2a. virtual Model：绑定代码对象的模型
+
+- **`virtual = true` 时，不创建表**：IStore 不为其建物理表，纯内存无持久化；CRUD/query 对 virtual model 不适用。
+- **Model 绑定一个 class**：引擎注册表持有 `model.id → class` 映射（不入库，类似 IAtomNode）；field 是 class 的成员变量（沿用 IField 结构，描述类型与序列化形态）。
+- **function 指向 native 方法**：非数据化 Function，`edges` 为空、`entry`/`output` 为空字符串。
+- **绑定信息存引擎注册表**，IModel 元数据不存代码引用。
+
+### 2b. 装饰器声明与目录装载（virtual model 的声明语法）
+
+- virtual model 通过 **TS 装饰器（新标准，stage 3）** 声明，装饰器求值时收集元数据注册进引擎：
+
+```typescript
+// 以下为伪代码，实际装饰器参数、修饰目标（类/字段/方法）均待设计
+@Meta.Model({ name: "user", namespace: "sys", virtual: true })
+class UserModel extends BaseModel {
+  @Meta.Field({ name: "username", type: Field.String })
+  private _username: string = "";
+
+  @Meta.Function({ name: "login" })
+  public static login(record: UserModel): Promise<void> {
+    // TODO:
+  }
+}
+```
+
+- **`@Meta.Model`** → IModel（name/namespace/virtual 等元数据）。
+- **`@Meta.Field`** → IField（`Field.String` 等常量映射 FieldType 字面量）。
+- **`@Meta.Function`** → IFunction（native 方法，无编排图）。
+- **`BaseModel`**：提供 id/namespace 等基础字段与类型能力，具体类继承后声明成员变量。
+- **收集时机 = require 时机**：装饰器在类定义求值时执行，收集器顺路提取元数据 → 引擎注册表（`model.id → class`、`function.id → 方法`）。
+- **目录装载**：引擎启动时从一个目录**动态 require 所有文件**即完成装载——require 触发装饰器求值 → 注册。无独立注册代码。
+- **元数据去向**：纯内存注册表（不入库，与 virtual 语义一致）。
+- **适用范围**：仅 virtual model 的声明语法；普通数据 model（建表 CRUD）仍用手写对象/JSON 声明。
+- **待设计**：装饰器实际参数（Model/Field/Function 各自的选项）、修饰目标（类/字段/方法/静态方法）、BaseModel 契约、Field 类型常量集、目录装载的路径/过滤规则。
 
 ### 3. fields 的分类：简单字段 & 复杂字段
 
@@ -153,6 +189,11 @@ interface IRelationField extends IComplexField {
   - 分支输出的是**令牌/信号**（非数据），下游节点被触发后按需从自身入边取数。
   - **分支的等待语义**：未激活分支的下游节点永远凑不齐所有入边，自然保持等待不执行（AND 汇聚自动实现 if/else 互斥）。
 - **数据获取：全入边流入**——节点数据全部通过入边流入，无共享状态读取。
+- **native function（virtual model 的方法）**：
+  - `edges` 为空、`entry`/`output` 为空字符串，无编排图。
+  - 引擎注册表持有 `function.id → 实际函数` 映射（不入库）。
+  - 无需区分 native/编排：`function.id` 全局唯一，注册表即权威。
+  - **调用方式**：编排图通过**特殊原子操作 `Call`**（携带 function.id 引用）以**平等的 Function 引用**调用——普通 function 与 native function 皆可被 Call 引用。
 - **错误处理**：function 执行过程中**捕获错误并返回**（不向外抛）。
 
 **自举一致性**
@@ -299,3 +340,5 @@ interface IRelationField extends IComplexField {
 - IStore：updateOne/deleteOne 以 record 内主键定位；query 用 IQueryCondition（等值或 [min,max] 闭区间）；事务接口返回 ITransactionStore（仅含数据操作）。
 - array 字段：array=true 时统一 string 存储，逗号分隔 + 反斜杠转义（`\` 转义 `,`）。
 - Function 编排：有向图（数据流触发 AND 汇聚，控制流降维为数据流），IAtomNode 不入库且无状态，output 节点全部 outputs 合并为返回值，执行错误捕获返回；惰性调度（等待是同步状态，引擎不预建 Promise 等待器，output 完成后 abort 活动执行）。
+- virtual Model：virtual=true 不建表、纯内存无持久化；绑定 class（引擎注册表 model.id→class）；function 为 native（edges 空/entry/output 空串），经特殊原子操作 Call 以平等 Function 引用调用。
+- 装饰器声明：@Meta.Model/@Meta.Field/@Meta.Function（TS 新标准）仅服务 virtual model，收集器在 require 求值时提取元数据入引擎注册表（纯内存）；目录动态 require 即装载。

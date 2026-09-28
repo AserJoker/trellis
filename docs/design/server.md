@@ -20,6 +20,13 @@
 - server 依赖 core：使用 Model 注册表、查询聚合引擎、function 编排引擎。
 - server 不直接碰存储：core 通过 `IStore` 接口访问存储，store 包实现该接口。
 
+## 4. 启动装载（骨架）
+
+- server 启动时从一个模块目录**动态 require 所有文件**。
+- require 触发装饰器（@Meta.Model/@Meta.Field/@Meta.Function）求值 → 收集器把元数据注册进引擎注册表（纯内存）。
+- 装载完成后即可对外提供 Model 接口（virtual model 的 class/function 已绑定）。
+- **待设计**：装饰器参数与修饰目标、目录路径/过滤规则、重复装载/热重载语义。
+
 ## 4. 待细化项
 
 - 路由表设计、HTTP 方法语义

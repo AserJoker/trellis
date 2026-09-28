@@ -49,6 +49,13 @@ export interface IFunctionEdge extends IBase {
  * - 执行过程中捕获错误并返回（不向外抛）。
  * - 引擎惰性调度：只有就绪且被派发的节点创建执行上下文；
  *   output 完成后对全部活动执行 abort（可取消，无 Promise 泄漏）。
+ *
+ * native function（virtual model 的方法）：
+ * - edges 为空、entry/output 为空字符串，无编排图。
+ * - 引擎注册表持有 function.id → 实际函数 的映射（不入库）。
+ * - 无需在元数据区分 native/编排：function.id 全局唯一，注册表即权威。
+ * - 被调用方式：编排图通过特殊原子操作 Call（携带 function.id 引用），
+ *   以平等的 Function 引用调用普通或 native function。
  */
 export interface IFunction extends IBase {
   edges: IFunctionEdge[];
