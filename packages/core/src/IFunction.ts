@@ -5,10 +5,17 @@ import { IBase } from "./IBase";
  * - emit：节点向指定输出字段发令牌；引擎即时路由下游。
  * - signal：引擎可取消本次执行（function 完成时对活动执行 abort，
  *   终止并行分支，避免异步资源泄漏）。
+ * - deps：宿主注入的上下文（泛型 D 声明注入物类型，不用 any/unknown）。
+ *   引擎启动时注册注入物（注册表），每次执行 function 统一注入。
+ *   例：后端 `IExecContext<{ store: IStore }>` → ctx.deps.store.query(...)；
+ *       前端 `IExecContext<{ history: History }>` → ctx.deps.history.push(...)。
  */
-export interface IExecContext {
+export interface IExecContext<
+  D extends Record<string, unknown> = Record<string, unknown>,
+> {
   emit(field: string, value: unknown): void;
   signal: AbortSignal;
+  deps: D;
 }
 
 /**
@@ -30,7 +37,10 @@ export interface IAtomNode extends IBase {
   inputs: string[];
   outputs: string[];
   /** 返回值不用于输出，结果通过 ctx.emit 发令牌；signal 触发时尽早返回。 */
-  fn: (input: Record<string, unknown>, ctx: IExecContext) => Promise<void>;
+  fn: <D extends Record<string, unknown> = Record<string, unknown>>(
+    input: Record<string, unknown>,
+    ctx: IExecContext<D>,
+  ) => Promise<void>;
 }
 
 /** 数据流边：从 fromNode 的 fromField 流向 toNode 的 toField。 */

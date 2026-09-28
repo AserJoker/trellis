@@ -190,6 +190,11 @@ interface IRelationField extends IComplexField {
   - 只有**就绪且被派发**的节点才创建执行上下文。
   - output 完成后引擎对**全部活动执行 abort**（AbortSignal），终止并行分支——可取消、不泄漏。
 - **节点输出：ctx.emit**——fn 不返回结果对象，而是通过注入的执行上下文 `ctx.emit(field, value)` **逐个发令牌**，引擎即时路由下游。
+- **宿主注入上下文：ctx.deps**——原子节点执行时可访问宿主注入的资源（非图数据，是引擎所在端的能力）：
+  - **IExecContext 是泛型**：`IExecContext<D>`（`D extends Record<string, unknown>`），`ctx.deps: D` 有完整类型提示，不用 any/unknown。
+  - **生命周期**：引擎启动时注册注入物（注册表），每次执行 function 统一注入到 ctx。
+  - **两端注册不同**：后端注册 IO 类（如 `{ store: IStore }`）→ 原子中 `ctx.deps.store.query(...)`；前端注册界面类（如 `{ history: History }`）→ `ctx.deps.history.push(...)`。
+  - 与「引擎一致、注册的原子接口不同」呼应：注入物不同，原子才做不同的事。
 - **控制流降维为数据流**：控制流不特殊，用普通原子节点表达。
   - 例：`if` 节点 `inputs={condition}`、`outputs={then, else}`，condition 决定 then/else 哪个端口激活。
   - **选择性输出**：只 emit 激活的输出字段，引擎只沿存在的字段触发下游边；未 emit 的输出字段 = 不触发。
@@ -459,3 +464,4 @@ interface IRelationField extends IComplexField {
 - 内建 function：createOne/updateOne/deleteOne/query 为预制 function，注册 model 时内建注册（无 edges/entry/output/input），引擎拦截执行 native 操作；model 需白名单声明，不声明不挂。
 - schema 子协议：内置 CRUD 接口的返回结构描述，采用去除校验的完整 JSONSchema 风格（每字段写 type）；对象 → O2O/M2O、数组 → M2M/O2M；`query(schema, condition, option)` 先查第一层再按 record+schema 递归装配；分页放 option 且按 model 分键 `{ <model.id>: <option> }`；CRUD 全部复用；服务端解析时做形状一致性校验（类型/字段与 Model 不匹配即报错，防前后端不配套）。
 - 执行位置：IFunction 新增 local 字段——local=true 前端本地执行、local=false/缺省以 function_id 为 key 调接口（后端执行）；内建数据操作固定后端执行；local 仅作路由决策与原子注册表无关；前后端引擎完全一致仅注册的原子接口不同（后端 IO 类、前端界面类）。
+- 执行上下文注入：IExecContext 泛型化 `IExecContext<D>`（D extends Record<string, unknown>），新增 `ctx.deps: D` 容器承载宿主注入物（后端 store、前端 history）；引擎启动注册注入物，每次执行统一注入。
