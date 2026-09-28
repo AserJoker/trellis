@@ -36,56 +36,76 @@
 ### 2. Model 的结构（三大部分）
 
 ```typescript
-interface Model {
-  // ① 元数据
-  name: string;
-  namespace: string;
-  id: string;
-  primaryField: string;
-  displayName: string; // 国际化 key
-  // <其它元数据>
+interface IBase {
+  id: string;        // 全局唯一
+  namespace: string; // 命名空间
+  name: string;      // 模型名
+  displayName?: string; // 国际化 key（可选）
+}
 
-  // ② 字段
-  fields: IField[];
-
-  // ③ 函数
-  functions: IFunction[];
+interface IModel extends IBase {
+  primaryField: string;  // 主键字段名
+  fields: IField[];      // 字段定义
+  functions: IFunction[]; // 行为函数定义
 }
 ```
 
-三大部分：**① 元数据区**、**② fields**（字段定义）、**③ functions**（行为函数定义）。
+三大部分：**① 元数据区**（IBase + primaryField）、**② fields**（字段定义）、**③ functions**（行为函数定义）。
+
+所有系统模型（Model/Field/Type/Function 等）共享 `IBase` 基础元数据：`id`（全局唯一）、`namespace`（命名空间）、`name`（模型名）、`displayName`（国际化 key，非直接显示文本）。
 
 ### 3. fields 的分类：简单字段 & 复杂字段
 
-- **简单字段**：普通数据字段。
+- **简单字段**：普通数据字段（string/integer/floating/boolean/text）。
+- **枚举字段**：enum，带 items 枚举项列表。
 - **复杂字段（关系字段）**：四类关系
-  - `One2One`（一对一）
   - `One2Many`（一对多）
   - `Many2One`（多对一）
+  - `One2One`（一对一）
   - `Many2Many`（多对多）
 
 **关系的存储方式**
 
-- 需要中间表：`One2One`、`Many2Many`（用单独的中间模型记录关系，**O2O 确认走中间表**）。
+- 需要中间模型（associationModel）：`One2One`、`Many2Many`（用单独的中间模型记录关系，**O2O 确认走中间表**）。
 - 直接外键：`One2Many`、`Many2One` —— 在 **Many 侧**的 Model 中存放对侧关系字段。
   - 例：`user.authId = auth.id`，多个 user 绑定同一个 auth。
 
-**字段元数据统一结构（所有字段统一四键，用不到留空）**
+**字段元数据结构（按类型区分，不是统一四键）**
 
-- 本侧关系字段（`thisField`）
-- 对侧关系字段（`thatField`）
-- 关系模型 id（`relatedModelId`）
-- 中间模型 id（`junctionModelId`）—— 仅 One2One / Many2Many 使用
+```typescript
+interface IBaseField extends IBase {
+  type: FieldType;
+  store?: boolean;
+}
+
+interface IComplexField extends IBaseField {
+  type: "one2many" | "many2one" | "one2one" | "many2many";
+  relationField: string;    // 本侧关系字段
+  referenceField: string;   // 对侧关系字段
+  referenceModel: string;   // 对侧模型 id（引 id，全局唯一）
+  store?: false;            // 复杂字段强制不落库
+}
+
+interface IRelationField extends IComplexField {
+  type: "many2many" | "one2one";
+  associationModel: string; // 中间模型 id（仅 O2O/M2M 使用）
+}
+```
+
+- 本侧关系字段（`relationField`）：如 user 侧声明 `auth` 字段，`relationField="authId"`。
+- 对侧关系字段（`referenceField`）：如 `referenceField="id"`（对侧 auth 的主键）。
+- 对侧模型（`referenceModel`）：引对侧 Model 的 **id**。
+- 中间模型（`associationModel`）：仅 `One2One` / `Many2Many` 使用，引中间 Model 的 **id**。
 
 **自举一致性**
 
-- Field 本身也是一个 Model，对应数据库中的一张表，且该表**列固定**。
-- 因此**所有字段（含简单字段）的元信息键结构必须统一**（同一张 Field 表的列），简单字段的这四键同样存在、留空；复杂字段四键按需填写。
+- Field 本身也是一个 Model，对应数据库中的一张表。
+- 字段按类型区分（simple/enum/complex/relation），而非旧设计的统一四键结构。
 
 ### 4. 字段的物理存在性
 
 - **是否存储取决于 `store` 字段**：每个字段元信息里有 `store` 标记，决定是否物理落库。
-- **复杂字段的 `store` 一定为 `false`**（数据库无此列，纯逻辑关系）。
+- **复杂字段的 `store` 一定为 `false`**（数据库无此列，纯逻辑关系），由类型系统强制（`store?: false`）。
 - **简单字段默认 `store = true`**（物理存在，有对应列），无需显式声明。
 - 复杂字段由**上层递归查询聚合**后返回给调用方。
 
@@ -93,20 +113,13 @@ interface Model {
 
 - 写入时：`store=false` 的字段不参与物理存储。
 - 读取时：复杂字段按关系定义递归聚合关联数据。
-- 复杂字段元数据中记录的 thisField / thatField / relatedModelId / junctionModelId 是查询聚合的导航信息。
+- 复杂字段元数据中记录的 relationField / referenceField / referenceModel / associationModel 是查询聚合的导航信息。
 
-### 5. 字段类型：抽象业务类型 → 逻辑数据类型
+### 5. 字段类型：内置字面量联合
 
-- 字段类型是**抽象的、面向业务的**，由框架映射到正确的数据类型。
-- 字段类型对应**代码中的逻辑数据类型**（框架内部统一的数据类型，而非物理数据库类型）。
-- 例：字段类型「金融」→ 实际是**以字符串保存的高精度数字**。
-- **类型映射可扩展**：业务类型到逻辑类型的映射本身也是一个 **Model**（类型也是数据对象，由 Model 描述）。
-  - 定义新业务类型 = 声明一个新的类型 Model。
-
-**推论**
-
-- 类型体系分层：业务抽象类型（声明层）→ 逻辑数据类型（运行时）→ 物理数据库类型（存储引擎推导）。
-- 新增业务类型无需改框架代码，声明一个类型 Model 即可。
+- 字段类型是**内置的固定联合**（`FieldType`），不做类型映射 Model。
+- `FieldType = "string" | "integer" | "floating" | "boolean" | "text" | "enum" | 四类关系`。
+- 业务类型到逻辑类型的映射（旧设计：类型也是 Model、可扩展）**已放弃**——类型体系固定，不做类型 Model。
 
 ### 6. Function：数据流 + 控制流合一的编排描述
 
@@ -121,25 +134,25 @@ interface Model {
 **自举一致性**
 
 - **function 本身也是一个 Model**：function 的结构（含编排 JSON 字段）由自身的 Model 承载。
-- 与 Field、Type 一致，所有框架核心概念都是 Model，递归闭合。
+- 与 Field 一致，所有框架核心概念都是 Model，递归闭合。
 
 **推论**
 
 - function 是"描述"而非"代码"：行为由可序列化的编排图定义。
 - 编排图是数据流 + 控制流合一：既描述数据流动，也描述分支/循环等控制逻辑。
 
-### 7. 系统模型的公共基础元数据
+### 7. 系统模型的公共基础元数据（IBase）
 
-- **所有系统模型**均包含：
+- **所有系统模型**均继承 `IBase`：
   - `id`：**全局唯一**标识
   - `name`：模型名
   - `namespace`：命名空间
-  - `displayName`：**国际化 key**（不是直接显示文本，而是 i18n 的 key）
+  - `displayName`：**国际化 key**（可选，不是直接显示文本，而是 i18n 的 key）
 - **国际化由另一个 Model 描述**：displayName 指向的 key，其多语言文本由独立的国际化 Model 承载（符合自举）。
 
 **推论**
 
-- 所有核心概念（Model、Field、Type、Function 等系统模型）共享这组基础元数据，结构统一。
+- 所有核心概念（Model、Field、Function 等系统模型）共享 `IBase` 基础元数据，结构统一。
 - 显示名不做硬编码文案，通过 key + 国际化 Model 解析，支持多语言。
 
 ---
@@ -205,7 +218,7 @@ interface Model {
 
 - 数据地图 ≈ 前端的查询需求声明（类 GraphQL 的选择集）。
 - 复杂字段的物理不存在性 + 递归聚合在这里落地：后端查询引擎根据 Model 关系图递归装配数据。
-- "清洗"暗示后端在聚合过程中做数据规范化/转换（类型映射、字段裁剪等）。
+- "清洗"暗示后端在聚合过程中做数据规范化/转换（字段裁剪、枚举归一等）。
 
 ### 6. 管理面（元数据自管理）
 
@@ -229,9 +242,19 @@ interface Model {
 - **受限环境降级方案**：当前受限环境中，可**暂时使用序列化为 JSON 存磁盘**（文件存储）。
   - 理由：**管理面本身的数据量可接受**（元数据规模小，JSON 落盘足够）。
 
+### IStore 接口（core 声明，store 实现）
+
+- core 声明 `IStore` 存储接口，**不实现**存储；`store` 包实现该接口。
+- `IColumn`：物理列（name + ColumnType）。`ColumnType` 只含简单类型 + enum（enum 列存枚举项 value 字符串）；复杂字段不落库，故无关系列。
+- `ITable`：id + columns + primaryColumn（对应 Model 的 primaryField）。
+- 数据操作：`createOne` / `updateOne` / `deleteOne` / `query`。
+  - `updateOne` / `deleteOne` 以 **record 内的主键字段**定位记录。
+  - `query` 的 `condition` 为查询条件：字段值**等值**或 `[min, max]` **闭区间范围**（二元组元素 undefined 表示对应侧无边界，如 `[undefined, 5]` = ≤5）；返回 `IQueryResult`（data + total）。
+- **事务**：`beginTransaction()` 返回一个 `ITransactionStore`（仅含数据操作 create/update/delete/query + commit/rollback，不含表结构操作）。事务期间操作落在事务内，commit 原子生效、rollback 全量回退。
+
 **推论**
 
-- 存储层做成可插拔适配：标准存储接口 + 各数据库适配器。
+- 存储层做成可插拔适配：`IStore` 接口 + 各数据库实现。
 - 元数据（Model/Field/Function/View 等管理面数据）量级小，JSON 文件存储作为低成本后端，不影响框架主体设计。
 - 业务数据与元数据可以走不同存储策略。
 
@@ -242,7 +265,10 @@ interface Model {
 （无）
 
 已确认的开放问题：
-- One2One 走中间表。
-- 所有字段（含简单字段）统一四键结构，用不到留空。
-- 简单字段默认 store = true。
+- One2One 走中间表（associationModel）。
+- 字段按类型区分（simple/enum/complex/relation），不是统一四键。
+- 简单字段默认 store = true；复杂字段 store 强制 false。
 - 前端组件类型本身也是 Model。
+- 关系键命名：relationField（本侧字段）/ referenceField（对侧字段）/ referenceModel（对侧模型 id）/ associationModel（中间模型 id，仅 O2O/M2M）。
+- 类型体系为内置字面量联合（FieldType），不做类型 Model。
+- IStore：updateOne/deleteOne 以 record 内主键定位；query 用 IQueryCondition（等值或 [min,max] 闭区间）；事务接口返回 ITransactionStore（仅含数据操作）。

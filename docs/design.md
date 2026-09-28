@@ -35,7 +35,7 @@
 
 ## 分层边界（骨架）
 
-1. **core（元数据核心，业务无关）**：Model/Field/Function/Type 的定义、注册、校验与核心算法；schema 解析是 model 体系的一部分（协议内化于 core）。声明 `IStore` 存储接口，**不实现**存储。
+1. **core（元数据核心，业务无关）**：Model/Field/Function 的定义、注册、校验与核心算法；schema 解析是 model 体系的一部分（协议内化于 core）。声明 `IStore` 存储接口，**不实现**存储。
 2. **store（存储实现）**：实现 core 声明的 `IStore` 接口，提供真实数据库功能（第一步 JSON/内存，后续可换数据库适配器）。
 3. **server（HTTP 服务）**：将进程内 Model 接口开放到 HTTP 端口（Node 内置 http 起步），供 client 调用。
 4. **client（前端界面）**：React 前端，ViewModel/XML 解析 → 无头组件逻辑层 → React 适配层渲染；前端 function 执行。
@@ -43,6 +43,6 @@
 
 ## 关键横切机制（骨架）
 
-- **自举**：ModelModel 描述 Model，FieldModel 描述 Field，FunctionModel 描述 Function，TypeModel 描述 Type，组件类型 Model 描述组件。
+- **自举**：ModelModel 描述 Model，FieldModel 描述 Field，FunctionModel 描述 Function，组件类型 Model 描述组件。
 - **命名空间 + 版本**：组件/模块通过命名空间+版本保证元数据与实现对应。
 - **模块化**：热拔插模块（设计暂缓，概念提及）。
