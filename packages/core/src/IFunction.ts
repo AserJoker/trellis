@@ -58,10 +58,12 @@ export interface IFunctionEdge extends IBase {
  *   以平等的 Function 引用调用普通或 native function。
  *
  * 执行位置：
- * - local = true：前端执行（前端运行时引擎直接运行，无需网络请求）。
- * - local = false / 缺省：后端执行（前端把调用封装成请求发往后端）。
- * - 执行位置是硬约束：local = true 的 function 只能被前端引擎执行，
- *   后端引擎（编排图 Call、请求正文调用）引用它即报错。
+ * - local = true：前端本地执行——框架用前端引擎直接运行该 function。
+ * - local = false / 缺省：后端执行——框架以 function_id 为 key 把调用封装成请求发往后端。
+ * - local 仅作路由决策，与原子注册表无关；function 能否在目标端执行取决于
+ *   目标端引擎注册表是否含其编排图所需原子（缺原子则执行时报错）。
+ * - 前后端执行引擎完全一致（同一套编排引擎），仅注册的原子接口不同：
+ *   后端为 IO 类原子（查询数据库、存储/事务），前端为界面类原子（跳转、返回）。
  * - 内建数据操作（createOne/updateOne/deleteOne/query）固定后端执行，不声明 local。
  */
 export interface IFunction extends IBase {

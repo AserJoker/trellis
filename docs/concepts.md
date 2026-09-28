@@ -255,16 +255,21 @@ interface IRelationField extends IComplexField {
 ### 3. Function 的执行位置（前端/后端）
 
 - function 区分**前端执行**与**后端执行**。
-- **执行位置是 function 元数据的声明属性**：`local` 字段。
-  - **`local = true`**：前端执行——function 直接在前端运行逻辑（无需网络请求），由前端运行时引擎执行。
-  - **`local = false` / 缺省**：后端执行——前端把调用**封装成请求**发往后端执行。
+- **执行位置是 function 元数据的声明属性**：`local` 字段，仅作**路由决策**，与原子注册表无关。
+  - **`local = true`**：**前端本地执行**——框架用前端引擎直接运行该 function（用前端注册的原子接口）。
+  - **`local = false`** / 缺省：**以 function_id 为 key 调用接口**——框架把 function_id 封装成请求发往后端，后端引擎执行（用后端注册的原子接口）。
+  - local 不校验原子可达性：function 能否执行取决于目标端注册表是否含其编排图所需原子，缺原子则执行时报错。
 - **内建数据操作固定后端执行**：createOne/updateOne/deleteOne/query 依赖后端 store，不声明 local。
-- **执行位置是硬约束**：`local = true` 的 function 只能被前端引擎执行，后端引擎（编排图 Call、请求正文调用）引用它即报错——执行位置声明决定实现位置，跨端引用显式失败（防实现缺失）。
+- **前后端引擎完全一致**：同一套 function 编排引擎（节点调度、AND 汇聚、ctx.emit、output 完成语义、惰性调度），前端 local=true 与后端 local=false 用同一引擎代码。
+- **唯一区别是注册的原子接口不同**：
+  - 后端注册 **IO 类原子**：查询数据库、存储/事务操作等。
+  - 前端注册**界面类原子**：跳转（navigate）、返回（back）等。
 
 **推论**
 
-- 前端运行时需要一套执行前端 function 的引擎（执行 local=true 的 function）。
+- 前端运行时需要一套执行前端 function 的引擎（与后端同一套引擎代码，注册前端原子）。
 - 例：`<Button on-click="model.login">` 点击时——`login.local=true` 则前端引擎本地执行；`local=false` 则发 `POST /sys/user { login: {...} }` 后端执行。
+- local=true 的 function 天然不被后端调用：local=false 才产生网络调用，local=true 没有"被请求"入口。
 
 ### 4. 组件架构：无头组件（Headless）两层模型
 
@@ -453,4 +458,4 @@ interface IRelationField extends IComplexField {
 - $delete：仅 updateOne 内使用，`updateOne(modelId, {id, $delete:true})` ≡ `deleteOne(modelId, {id})`。
 - 内建 function：createOne/updateOne/deleteOne/query 为预制 function，注册 model 时内建注册（无 edges/entry/output/input），引擎拦截执行 native 操作；model 需白名单声明，不声明不挂。
 - schema 子协议：内置 CRUD 接口的返回结构描述，采用去除校验的完整 JSONSchema 风格（每字段写 type）；对象 → O2O/M2O、数组 → M2M/O2M；`query(schema, condition, option)` 先查第一层再按 record+schema 递归装配；分页放 option 且按 model 分键 `{ <model.id>: <option> }`；CRUD 全部复用；服务端解析时做形状一致性校验（类型/字段与 Model 不匹配即报错，防前后端不配套）。
-- 执行位置：IFunction 新增 local 字段——local=true 前端执行、local=false/缺省后端执行；内建数据操作固定后端执行；local=true 是硬约束（后端引擎引用即报错）。
+- 执行位置：IFunction 新增 local 字段——local=true 前端本地执行、local=false/缺省以 function_id 为 key 调接口（后端执行）；内建数据操作固定后端执行；local 仅作路由决策与原子注册表无关；前后端引擎完全一致仅注册的原子接口不同（后端 IO 类、前端界面类）。
