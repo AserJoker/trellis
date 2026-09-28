@@ -339,6 +339,10 @@ interface IRelationField extends IComplexField {
   2. 根据 **record + 第一层 schema** 向下递归解析：遇到对象/数组字段按关系定义查对侧 model，逐层装配。
 - **分页 gap**：schema 描述不了嵌套集合的分页信息，因此分页放进 option，且 **option 按 model 分键**：`{ <model.id>: <option> }`——每层嵌套 model 各自独立分页（如 orders 数组用 `options["sys.order"]` 分页）。
 - **适用范围**：**CRUD 全部复用**——create/update/delete 的返回同样走 schema（写入后可嵌套回读，如 createOne 携带嵌套数据后按 schema 返回装配结果）。
+- **服务端解析校验**：schema 虽去除 JSONSchema 的**校验语义**（不校验值），但**解析时仍做形状一致性校验**——请求声明的结构必须与 Model 定义匹配，不匹配即报错（业务错误，走响应体）：
+  - 例：字段在 Model 中是 string，schema 却声明为 object → 报错。
+  - 例：schema 声明了 Model 中不存在的字段 → 报错。
+  - 理由：**前后端可能不配套**（前端版本旧/新、元数据与实现错位），形状不匹配必须显式失败而非静默产出错误数据。
 
 **例**（user → orders 为 O2M，auth 为 M2O）：
 
@@ -380,7 +384,7 @@ interface IRelationField extends IComplexField {
 }
 ```
 
-**待设计**：GET 查询如何携带 schema/condition/options（URL query string 映射）；schema 与 Model 定义不一致时（请求声明了 model 没有的字段）的行为。
+**待设计**：GET 查询如何携带 schema/condition/options（URL query string 映射）。
 - "清洗"暗示后端在聚合过程中做数据规范化/转换（字段裁剪、枚举归一等）。
 
 ### 6. 管理面（元数据自管理）
@@ -446,4 +450,4 @@ interface IRelationField extends IComplexField {
 - 事务语义：一次请求 = 一次完整事务，全部成功 commit、任一失败整体回滚；前端靠 model 关系推算本次事务的 function 集合；createOne/updateOne 参数可嵌套携带关联关系级联写入。
 - $delete：仅 updateOne 内使用，`updateOne(modelId, {id, $delete:true})` ≡ `deleteOne(modelId, {id})`。
 - 内建 function：createOne/updateOne/deleteOne/query 为预制 function，注册 model 时内建注册（无 edges/entry/output/input），引擎拦截执行 native 操作；model 需白名单声明，不声明不挂。
-- schema 子协议：内置 CRUD 接口的返回结构描述，采用去除校验的完整 JSONSchema 风格（每字段写 type）；对象 → O2O/M2O、数组 → M2M/O2M；`query(schema, condition, option)` 先查第一层再按 record+schema 递归装配；分页放 option 且按 model 分键 `{ <model.id>: <option> }`；CRUD 全部复用。
+- schema 子协议：内置 CRUD 接口的返回结构描述，采用去除校验的完整 JSONSchema 风格（每字段写 type）；对象 → O2O/M2O、数组 → M2M/O2M；`query(schema, condition, option)` 先查第一层再按 record+schema 递归装配；分页放 option 且按 model 分键 `{ <model.id>: <option> }`；CRUD 全部复用；服务端解析时做形状一致性校验（类型/字段与 Model 不匹配即报错，防前后端不配套）。
