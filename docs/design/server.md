@@ -11,9 +11,8 @@
 
 ## 2. 请求路由
 
-- **method 约束**：仅 GET / POST 两种（业务约束，技术不约束）。
-  - GET：数据查询（query）。
-  - POST：非查询（create/update/delete、function 调用）。
+- **method 约束**：仅 POST（业务约束，技术不约束）——所有业务请求（查询与非查询）统一走 POST。
+  - 查询不单独用 GET：schema 是树形结构（嵌套 properties/items），塞进 URL query string 面临长度限制与编码复杂度，查询也走 POST 正文携带。
 - **URL 形状**：`/namespace/name`（model 的两个字段直查），如 `/sys/user`。
 - **请求正文**：`{ <function_id>: <param> }`——function_id 相对 URL 中描述的 model；一次请求 = 一次完整事务。
 - **响应正文**：统一 `{ ok }` 包裹；成功 `{ ok:true, data: { <function_id>: <result> } }`，失败 `{ ok:false, code, message }`（无 data，整体回滚）。
@@ -34,7 +33,7 @@
 
 ## 5. 待细化项
 
-- 请求/响应序列化细节、GET 查询参数与 schema/condition/options 的映射
+- 请求/响应序列化细节
 - 白名单声明的具体字段形态（内建 function 如何声明）
 - 错误码（code）枚举、日志、启动/关闭生命周期
 - 批处理 / 缓存 / 订阅（阶段 5）

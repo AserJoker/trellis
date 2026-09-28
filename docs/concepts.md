@@ -292,11 +292,10 @@ interface IRelationField extends IComplexField {
 - 数据地图 ≈ 前端的查询需求声明（类 GraphQL 的选择集）。
 - 复杂字段的物理不存在性 + 递归聚合在这里落地：后端查询引擎根据 Model 关系图递归装配数据。
 
-#### 5a. 通讯协议（方法 / URL / 错误语义）
+#### 5a. 通讯协议（method / URL / 错误语义）
 
-- **仅 GET / POST 两种 method**（业务约束，技术不约束）：
-  - **GET**：数据查询（query）。
-  - **POST**：非查询（create/update/delete、function 调用）。
+- **仅 POST**（业务约束，技术不约束）：所有业务请求（查询与非查询）统一走 POST，正文携带请求对象。
+  - 查询不单独用 GET：schema 是树形结构（嵌套 properties/items），塞进 URL query string 会面临长度限制与编码复杂度，因此查询也走 POST 正文携带。
 - **URL**：`/namespace/name`——model 的两个字段（namespace + name）直查，如 `/sys/user`。
 - **错误语义**：
   - **业务错误从响应体返回**（HTTP 200）：如校验失败、主键冲突、$delete 目标不存在。
@@ -387,7 +386,7 @@ interface IRelationField extends IComplexField {
 }
 ```
 
-**待设计**：GET 查询如何携带 schema/condition/options（URL query string 映射）。
+**待设计**：（无——查询统一走 POST 正文，schema 与请求正文一并携带）。
 - "清洗"暗示后端在聚合过程中做数据规范化/转换（字段裁剪、枚举归一等）。
 
 ### 6. 管理面（元数据自管理）
@@ -448,7 +447,7 @@ interface IRelationField extends IComplexField {
 - Function 编排：有向图（数据流触发 AND 汇聚，控制流降维为数据流），IAtomNode 不入库且无状态，output 节点全部 outputs 合并为返回值，执行错误捕获返回；惰性调度（等待是同步状态，引擎不预建 Promise 等待器，output 完成后 abort 活动执行）。
 - virtual Model：virtual=true 不建表、纯内存无持久化；绑定 class（引擎注册表 model.id→class）；function 为 native（edges 空/entry/output 空串），经特殊原子操作 Call 以平等 Function 引用调用。
 - 装饰器声明：@Meta.Model/@Meta.Field/@Meta.Function（TS 新标准）仅服务 virtual model，收集器在 require 求值时提取元数据入引擎注册表（纯内存）；目录动态 require 即装载。
-- 通讯协议：仅 GET/POST（GET 查询、POST 非查询）；URL 为 `/namespace/name`（model 两字段直查）；业务错误从响应体返回（HTTP 200）、系统错误才设 HTTP 状态码；响应统一 `{ ok }` 包裹。
+- 通讯协议：仅 POST（所有业务请求统一 POST，查询也走正文携带 schema）；URL 为 `/namespace/name`（model 两字段直查）；业务错误从响应体返回（HTTP 200）、系统错误才设 HTTP 状态码；响应统一 `{ ok }` 包裹。
 - 请求正文：`{ <function_id>: <param> }`（function_id 相对 URL 中描述的 model，model 与 view 是 O2M）；成功响应 `{ ok:true, data: { <function_id>: <result> } }`，失败 `{ ok:false, code, message }` 无 data（无部分成功概念）。
 - 事务语义：一次请求 = 一次完整事务，全部成功 commit、任一失败整体回滚；前端靠 model 关系推算本次事务的 function 集合；createOne/updateOne 参数可嵌套携带关联关系级联写入。
 - $delete：仅 updateOne 内使用，`updateOne(modelId, {id, $delete:true})` ≡ `deleteOne(modelId, {id})`。
