@@ -142,9 +142,14 @@ interface IRelationField extends IComplexField {
   - `entry`：入口节点。
   - `output`：输出节点（指向节点 id）——**该节点执行完成后视作整个 function 执行完成**，其**全部 outputs 字段合并**作为 function 的返回值。
 - **执行调度：数据流触发（AND 汇聚）**——**节点要执行，必须所有入边数据都就绪**；任一输入仍处于等待则该节点等待。无依赖节点自动并行。
+- **惰性调度（无 Promise 泄漏）**：
+  - 等待是**同步状态**（入边槽位未满），引擎**不预建 Promise 等待器**；未就绪节点零异步资源。
+  - 只有**就绪且被派发**的节点才创建执行上下文。
+  - output 完成后引擎对**全部活动执行 abort**（AbortSignal），终止并行分支——可取消、不泄漏。
+- **节点输出：ctx.emit**——fn 不返回结果对象，而是通过注入的执行上下文 `ctx.emit(field, value)` **逐个发令牌**，引擎即时路由下游。
 - **控制流降维为数据流**：控制流不特殊，用普通原子节点表达。
   - 例：`if` 节点 `inputs={condition}`、`outputs={then, else}`，condition 决定 then/else 哪个端口激活。
-  - **选择性输出**：fn 只返回激活的输出字段，引擎只沿存在的字段触发下游边；不存在的输出字段 = 不触发。
+  - **选择性输出**：只 emit 激活的输出字段，引擎只沿存在的字段触发下游边；未 emit 的输出字段 = 不触发。
   - 分支输出的是**令牌/信号**（非数据），下游节点被触发后按需从自身入边取数。
   - **分支的等待语义**：未激活分支的下游节点永远凑不齐所有入边，自然保持等待不执行（AND 汇聚自动实现 if/else 互斥）。
 - **数据获取：全入边流入**——节点数据全部通过入边流入，无共享状态读取。
@@ -293,4 +298,4 @@ interface IRelationField extends IComplexField {
 - 类型体系为内置字面量联合（FieldType），不做类型 Model。
 - IStore：updateOne/deleteOne 以 record 内主键定位；query 用 IQueryCondition（等值或 [min,max] 闭区间）；事务接口返回 ITransactionStore（仅含数据操作）。
 - array 字段：array=true 时统一 string 存储，逗号分隔 + 反斜杠转义（`\` 转义 `,`）。
-- Function 编排：有向图（数据流触发 AND 汇聚，控制流降维为数据流），IAtomNode 不入库且无状态，output 节点全部 outputs 合并为返回值，执行错误捕获返回。
+- Function 编排：有向图（数据流触发 AND 汇聚，控制流降维为数据流），IAtomNode 不入库且无状态，output 节点全部 outputs 合并为返回值，执行错误捕获返回；惰性调度（等待是同步状态，引擎不预建 Promise 等待器，output 完成后 abort 活动执行）。
