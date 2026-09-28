@@ -18,7 +18,7 @@
 - **请求正文**：`{ <function_id>: <param> }`——function_id 相对 URL 中描述的 model；一次请求 = 一次完整事务。
 - **响应正文**：统一 `{ ok }` 包裹；成功 `{ ok:true, data: { <function_id>: <result> } }`，失败 `{ ok:false, code, message }`（无 data，整体回滚）。
 - **错误语义**：业务错误从响应体返回（HTTP 200）；系统错误才设置 HTTP 状态码（404 路由不存在、500 引擎异常）。
-- **内建 function**：createOne/updateOne/deleteOne/query 为预制 function（model 白名单声明后开放），引擎拦截执行 native 操作。
+- **内建 function**：createOne/updateOne/deleteOne/query 为预制 function（model 白名单声明后开放），引擎拦截执行 native 操作；返回结构由 schema 子协议描述（对象 → O2O/M2O、数组 → M2M/O2M，分页 option 按 model 分键）。
 
 ## 3. 与 core / store 的接线（骨架）
 
@@ -34,7 +34,7 @@
 
 ## 5. 待细化项
 
-- 请求/响应序列化细节、GET 查询参数与 data map 的映射
+- 请求/响应序列化细节、GET 查询参数与 schema/condition/options 的映射
 - 白名单声明的具体字段形态（内建 function 如何声明）
 - 错误码（code）枚举、日志、启动/关闭生命周期
 - 批处理 / 缓存 / 订阅（阶段 5）
