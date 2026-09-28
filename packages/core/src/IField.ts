@@ -17,6 +17,12 @@ export interface IEnumItem extends IBase {
 export interface IBaseField extends IBase {
   type: FieldType;
   store?: boolean;
+  /**
+   * array = true 时，字段为数组，所有数据类型统一以 string 序列化。
+   * 序列化格式：逗号分隔 + 反斜杠转义（`\` 转义 `,`）。
+   * 例：[1,2] → "1,2"；["a","b,"] → "a,b\,"。
+   */
+  array?: boolean;
 }
 export interface ISimpleField extends IBaseField {
   type: "string" | "integer" | "floating" | "boolean" | "text";

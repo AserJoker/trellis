@@ -76,6 +76,7 @@ interface IModel extends IBase {
 interface IBaseField extends IBase {
   type: FieldType;
   store?: boolean;
+  array?: boolean; // 数组字段，序列化为逗号分隔字符串
 }
 
 interface IComplexField extends IBaseField {
@@ -121,25 +122,44 @@ interface IRelationField extends IComplexField {
 - `FieldType = "string" | "integer" | "floating" | "boolean" | "text" | "enum" | 四类关系`。
 - 业务类型到逻辑类型的映射（旧设计：类型也是 Model、可扩展）**已放弃**——类型体系固定，不做类型 Model。
 
-### 6. Function：数据流 + 控制流合一的编排描述
+### 5a. 数组字段（array）
+
+- 字段可声明 `array = true`，表示该字段值为**数组**。
+- **array = true 时，所有数据类型统一以 string 序列化**存储。
+- **序列化格式**：逗号分隔 + 反斜杠转义（`\` 转义 `,`）：
+  - `[1,2]` → `"1,2"`
+  - `["a","b,"]` → `"a,b\,"`
+- 读写时做序列化/反序列化（写入序列化，读取反序列化还原为数组）。
+- 物理列类型仍为 string（`ColumnType` 的 string），array 是字段语义而非列类型。
+
+### 6. Function：有向图编排（控制流降维为数据流）
 
 - function 是 Model 三大组成部分之一。
-- **编排图是 function 上的一个 JSON 字段**：不是独立数据对象，就是 function 自身结构里的一个 JSON 字段。
-- 该 JSON 描述**数据流 + 控制流合一的编排图**。
-- **底层是框架提供的原子能力**，作为编排图的节点/叶子：
-  - 原子数据操作（数据读写等原始操作）
-  - 原子功能函数（业务功能原语）
-- 编排图把原子操作组织成可复用的 function。
+- **Function 本质是一个有向图**：`IAtomNode`（节点）+ `IFunctionEdge`（数据流边）+ entry/output。
+- **IAtomNode（原子操作）不入库**：由引擎在启动时注册管理；规定**必须无状态**。
+- **IFunctionEdge**：`fromNode/fromField → toNode/toField` 数据流边。
+- **IFunction**：`edges + entry + output`。
+  - `entry`：入口节点。
+  - `output`：输出节点（指向节点 id）——**该节点执行完成后视作整个 function 执行完成**，其**全部 outputs 字段合并**作为 function 的返回值。
+- **执行调度：数据流触发（AND 汇聚）**——**节点要执行，必须所有入边数据都就绪**；任一输入仍处于等待则该节点等待。无依赖节点自动并行。
+- **控制流降维为数据流**：控制流不特殊，用普通原子节点表达。
+  - 例：`if` 节点 `inputs={condition}`、`outputs={then, else}`，condition 决定 then/else 哪个端口激活。
+  - **选择性输出**：fn 只返回激活的输出字段，引擎只沿存在的字段触发下游边；不存在的输出字段 = 不触发。
+  - 分支输出的是**令牌/信号**（非数据），下游节点被触发后按需从自身入边取数。
+  - **分支的等待语义**：未激活分支的下游节点永远凑不齐所有入边，自然保持等待不执行（AND 汇聚自动实现 if/else 互斥）。
+- **数据获取：全入边流入**——节点数据全部通过入边流入，无共享状态读取。
+- **错误处理**：function 执行过程中**捕获错误并返回**（不向外抛）。
 
 **自举一致性**
 
-- **function 本身也是一个 Model**：function 的结构（含编排 JSON 字段）由自身的 Model 承载。
+- **function 本身也是一个 Model**：function 的结构（含 edges/entry/output）由自身的 Model 承载。
 - 与 Field 一致，所有框架核心概念都是 Model，递归闭合。
 
 **推论**
 
-- function 是"描述"而非"代码"：行为由可序列化的编排图定义。
-- 编排图是数据流 + 控制流合一：既描述数据流动，也描述分支/循环等控制逻辑。
+- function 是"描述"而非"代码"：行为由可序列化的有向图定义。
+- 原子操作是引擎注册的代码能力（无状态、不入库），编排图把它们组织成可复用 function。
+- 控制流 = 选择性输出 + 令牌分发：不需要特殊的控制流语法或环，图保持纯数据流。
 
 ### 7. 系统模型的公共基础元数据（IBase）
 
@@ -272,3 +292,5 @@ interface IRelationField extends IComplexField {
 - 关系键命名：relationField（本侧字段）/ referenceField（对侧字段）/ referenceModel（对侧模型 id）/ associationModel（中间模型 id，仅 O2O/M2M）。
 - 类型体系为内置字面量联合（FieldType），不做类型 Model。
 - IStore：updateOne/deleteOne 以 record 内主键定位；query 用 IQueryCondition（等值或 [min,max] 闭区间）；事务接口返回 ITransactionStore（仅含数据操作）。
+- array 字段：array=true 时统一 string 存储，逗号分隔 + 反斜杠转义（`\` 转义 `,`）。
+- Function 编排：有向图（数据流触发 AND 汇聚，控制流降维为数据流），IAtomNode 不入库且无状态，output 节点全部 outputs 合并为返回值，执行错误捕获返回。
