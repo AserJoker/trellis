@@ -17,7 +17,7 @@ function binaryBool(
       const a = input.a as boolean;
       const b = input.b as boolean;
       if (typeof a !== "boolean" || typeof b !== "boolean") {
-        throw new Error(`sys.${name}: 入边 a/b 必须是 boolean`);
+        throw new Error(`sys.${name}: inputs a/b must be booleans`);
       }
       ctx.emit("result", fn(a, b));
     },
@@ -36,7 +36,7 @@ function unaryBool(id: string, name: string, fn: (a: boolean) => boolean): IAtom
     async fn(input, ctx) {
       const a = input.a as boolean;
       if (typeof a !== "boolean") {
-        throw new Error(`sys.${name}: 入边 a 必须是 boolean`);
+        throw new Error(`sys.${name}: input a must be a boolean`);
       }
       ctx.emit("result", fn(a));
     },

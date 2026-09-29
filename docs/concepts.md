@@ -227,11 +227,23 @@ interface IRelationField extends IComplexField {
 - **职责**：执行 IFunction 编排图。本质是**无副作用的纯执行器**——副作用全部来自外部注入的 `deps` 和原子接口（IAtomNode），执行器自身不碰任何 IO/状态。
 - **命名**：不叫 Engine（太泛），就是 Function 的执行器——`FunctionExecutor`，`createFunctionExecutor()`。
 - **API**：
-  - `createFunctionExecutor(deps, options?)`：创建执行器——**默认自动注册 sys 通用原子**（if/数学/逻辑/比较）；options 可追加自定义原子（`atoms`）或禁用默认（`disableDefaultAtoms`）。
+  - `createFunctionExecutor(deps, options?)`：创建执行器——**默认自动注册 sys 通用原子**；options 可追加自定义原子（`atoms`）或禁用默认（`disableDefaultAtoms`）。
   - `registerAtom(node)`：注册原子操作（id 重复报错）。
   - `registerFunction(fn)`：注册 function（id 重复报错）。
   - `execute(id, params)`：执行 function，resolve output 节点全部 outputs 字段合并；params 直接作为 entry 节点的 input。
-- **节点状态（槽位状态机）**：每节点维护 `slots`（已收到入边值）+ `missing`（未就绪入边字段）+ `status`（pending/running/done/aborted）+ `emitted`（本节点 emit 过的输出字段）。
+- **sys 通用原子（atoms/，引擎默认注册）**：
+  - **控制流**：`sys.if`（condition 选择性输出 then/else 令牌）、`sys.switch`（多路分支：`value` 按 `cases`（case 值→输出字段名）匹配 emit 对应字段令牌，无匹配 emit `default` 字段令牌；case 值统一转字符串比对）、`sys.coalesce`（空值兜底：`array` 取首个非 null/undefined emit result）。
+  - **数学**：`sys.add/sub/mul/div`（inputs={a,b}，outputs={result}）。
+  - **逻辑**：`sys.and/or/not`。
+  - **比较**：`sys.equals/notEquals/gt/gte/lt/lte`。
+  - **record**：`sys.getField`（{record,key}→value）、`sys.setField`（{record,key,value}→新 record）。
+  - **record 变换**：`sys.mergeRecord`（{a,b}→b 覆盖 a）、`sys.pick`（{record,keys}）、`sys.omit`（{record,keys}）。
+  - **集合**：`sys.length`（→count）、`sys.concat`（{a,b}）、`sys.slice`（{array,start,end?}）、`sys.first`、`sys.last`。
+  - **集合字段**：`sys.mapField`（{array,key}→字段值数组）、`sys.filterByField`（{array,key,value}→等值过滤）。
+  - **类型转换**：`sys.toString`、`sys.toNumber`、`sys.parseJson`（text→值）、`sys.stringify`（值→JSON 字符串）。
+  - **约定**：可选入边用常量边提供 `undefined`，fn 自行判空（如 switch 的 default 不提供时）；原子全部**无状态、无回调**（map/reduce 等需回调的依赖 Call，留待后续）。
+- **节点状态（槽位状态机）**：每节点维护 `slots`（已收到入边值）+ `missing`（未就绪入边字段）+ `join`（汇聚模式）+ `status`（pending/running/done/aborted）+ `emitted`（本节点 emit 过的输出字段）。
+- **汇聚模式（IAtomNode.join）**：缺省 `"and"`（AND 汇聚，`missing` 为空即就绪）；`"or"` = **任一入边到达即执行**（事件驱动，`slots.size > 0` 即就绪）。OR 节点的 fn 自行处理槽位不完整（如 `input.a ?? input.b`）。**OR 只触发一次**：就绪判定带 `status === "pending"` 检查，先到触发后到只填槽不重执行。
 - **AND 汇聚**：`missing` 为空即就绪；任一入边缺 → 保持等待。等待是**纯同步状态**（只有 slots/missing 数据），**不创建任何 Promise 等待器**——未就绪节点零异步资源，无泄漏。
 - **emit 同步路由**：节点 fn 中 `ctx.emit(field, value)` 是同步操作——记录 emitted、沿出边填下游槽位、下游就绪则入 readyQueue。**派发用微任务**（避免 emit 深递归导致调用栈溢出）。
 - **output 完成 + abort**：output 节点 done → 其 emitted 全部字段合并作为返回值；同时 `controller.abort()` 终止全部活动执行（并行分支被取消）。**一次 execute 一个共享 AbortController**，所有节点 ctx.signal 共用。
@@ -239,8 +251,8 @@ interface IRelationField extends IComplexField {
 - **错误处理**：fn 抛错/reject → 捕获 → 整个 function 失败 → resolve `{ error: { message, nodeId } }`，不向外抛；abort 导致的提前返回不算错误（正常取消）。**图校验错误（原子未注册等）同样 resolve 错误而非抛出**——错误捕获语义统一：execute 永远不向外抛。
 - **与通讯协议衔接**：错误形状 `{ error: {...} }` 由 server 映射为协议层 `{ ok:false, code, message }`。
 
-**本版范围**：注册表 + 图校验（entry/output/边引用节点都在原子注册表）+ execute + AND 汇聚 + emit 同步路由 + output 完成/abort + deps + 错误捕获 + entry 参数注入。
-**留待后续**：`Call` 原子（编排图调 function）、环/死锁检测、执行超时、图校验增强。
+**本版范围**：注册表 + 图校验（entry/output/边引用节点都在原子注册表）+ execute + AND/OR 汇聚 + emit 同步路由 + output 完成/abort + deps + 错误捕获 + entry 参数注入 + sys 通用原子（控制流/数学/逻辑/比较/record/集合/转换）。
+**留待后续**：`Call` 原子（编排图调 function，含回调型原子 map/reduce 的前置）、环/死锁检测、执行超时、图校验增强。
 
 ### 7. 系统模型的公共基础元数据（IBase）
 

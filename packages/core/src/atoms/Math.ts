@@ -17,7 +17,7 @@ function binaryMath(
       const a = input.a as number;
       const b = input.b as number;
       if (typeof a !== "number" || typeof b !== "number") {
-        throw new Error(`sys.${name}: 入边 a/b 必须是 number`);
+        throw new Error(`sys.${name}: inputs a/b must be numbers`);
       }
       ctx.emit("result", fn(a, b));
     },

@@ -45,6 +45,8 @@ interface NodeState {
   slots: Map<string, unknown>;
   /** 尚未就绪的入边字段。 */
   missing: Set<string>;
+  /** 就绪判定：AND（缺省）全入边就绪；OR 任一到达即就绪。 */
+  join: "and" | "or";
   status: "pending" | "running" | "done" | "aborted";
   /** 本节点 emit 过的输出字段（output 收集用）。 */
   emitted: Map<string, unknown>;
@@ -63,7 +65,7 @@ export function createFunctionExecutor<D extends Record<string, unknown>>(
   }
   for (const atom of options.atoms ?? []) {
     if (atoms.has(atom.id)) {
-      throw new Error(`原子节点重复注册: ${atom.id}`);
+      throw new Error(`Duplicate atom registration: ${atom.id}`);
     }
     atoms.set(atom.id, atom);
   }
@@ -78,12 +80,13 @@ export function createFunctionExecutor<D extends Record<string, unknown>>(
     for (const nodeId of collectNodeIds(fn)) {
       const node = atoms.get(nodeId);
       if (!node) {
-        return { nodes, outgoing: out, error: `原子节点未注册: ${nodeId}` };
+        return { nodes, outgoing: out, error: `Atom node not registered: ${nodeId}` };
       }
       nodes.set(nodeId, {
         node,
         slots: new Map(),
         missing: new Set(node.inputs),
+        join: node.join ?? "and",
         status: "pending",
         emitted: new Map(),
       });
@@ -98,7 +101,7 @@ export function createFunctionExecutor<D extends Record<string, unknown>>(
         // 常量边：直接填目标槽位（无源节点，天然就绪）
         const target = nodes.get(edge.toNode);
         if (!target) {
-          return { nodes, outgoing: out, error: `常量边目标节点未注册: ${edge.toNode}` };
+          return { nodes, outgoing: out, error: `Constant edge target node not registered: ${edge.toNode}` };
         }
         target.slots.set(edge.toField, edge.constant);
         target.missing.delete(edge.toField);
@@ -113,10 +116,10 @@ export function createFunctionExecutor<D extends Record<string, unknown>>(
   ): Promise<ExecResult> {
     const fn = functions.get(id);
     if (!fn) {
-      return { error: { message: `function 未注册: ${id}`, nodeId: "" } };
+      return { error: { message: `Function not registered: ${id}`, nodeId: "" } };
     }
     if (!fn.entry || !fn.output) {
-      return { error: { message: `function ${id} 缺少 entry/output`, nodeId: "" } };
+      return { error: { message: `Function ${id} is missing entry/output`, nodeId: "" } };
     }
 
     const { nodes, outgoing: outMap, error } = buildGraph(fn);
@@ -127,7 +130,7 @@ export function createFunctionExecutor<D extends Record<string, unknown>>(
     const output = nodes.get(fn.output);
     if (!entry || !output) {
       return {
-        error: { message: `function ${id} 的 entry/output 不在图中`, nodeId: "" },
+        error: { message: `Function ${id}: entry/output not found in graph`, nodeId: "" },
       };
     }
 
@@ -144,7 +147,12 @@ export function createFunctionExecutor<D extends Record<string, unknown>>(
         if (!target || target.status === "done" || target.status === "aborted") continue;
         target.slots.set(edge.toField, value);
         target.missing.delete(edge.toField);
-        if (target.missing.size === 0 && target.status === "pending") {
+        // 就绪判定：AND 全入边就绪；OR 任一到达即就绪
+        const ready =
+          target.join === "or"
+            ? target.slots.size > 0
+            : target.missing.size === 0;
+        if (ready && target.status === "pending") {
           target.status = "running";
           readyQueue.push(target);
           queueMicrotask(drain);
@@ -191,10 +199,15 @@ export function createFunctionExecutor<D extends Record<string, unknown>>(
       resolve = res;
     });
 
-    // 派发全部源节点（missing 为空的节点：无入边的常量、或入边已齐的节点）
+    // 派发全部源节点：
+    // - AND 节点：missing 为空（无入边，或入边已被常量边/entry params 填齐）
+    // - OR 节点：slots 非空（至少一个触发源已就绪，可能来自常量边）
     // entry 是其中之一；params 直接注入 entry 的 input（其他源节点 input 为空）
     for (const state of nodes.values()) {
-      if (state.missing.size > 0 || state.status !== "pending") continue;
+      if (state.status !== "pending") continue;
+      const ready =
+        state.join === "or" ? state.slots.size > 0 : state.missing.size === 0;
+      if (!ready) continue;
       state.status = "running";
       if (state.node.id === fn.entry) {
         for (const [k, v] of Object.entries(params)) state.slots.set(k, v);
@@ -209,13 +222,13 @@ export function createFunctionExecutor<D extends Record<string, unknown>>(
   return {
     registerAtom(node) {
       if (atoms.has(node.id)) {
-        throw new Error(`原子节点重复注册: ${node.id}`);
+        throw new Error(`Duplicate atom registration: ${node.id}`);
       }
       atoms.set(node.id, node);
     },
     registerFunction(fn) {
       if (functions.has(fn.id)) {
-        throw new Error(`function 重复注册: ${fn.id}`);
+        throw new Error(`Duplicate function registration: ${fn.id}`);
       }
       functions.set(fn.id, fn);
     },

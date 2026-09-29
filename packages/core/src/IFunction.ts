@@ -36,6 +36,12 @@ export interface IAtomNode extends IBase {
   version: string;
   inputs: string[];
   outputs: string[];
+  /**
+   * 汇聚模式（缺省 "and"）：
+   * - "and"：全部入边就绪才执行（AND 汇聚）。
+   * - "or"：任一入边到达即执行（事件驱动/多触发源）；slots 可能不完整，由 fn 自行处理。
+   */
+  join?: "and" | "or";
   /** 返回值不用于输出，结果通过 ctx.emit 发令牌；signal 触发时尽早返回。 */
   fn: <D extends Record<string, unknown> = Record<string, unknown>>(
     input: Record<string, unknown>,
