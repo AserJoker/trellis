@@ -43,12 +43,18 @@ export interface IAtomNode extends IBase {
   ) => Promise<void>;
 }
 
-/** 数据流边：从 fromNode 的 fromField 流向 toNode 的 toField。 */
+/**
+ * 数据流边：
+ * - 节点边：fromNode 非空，值从 fromNode 的 fromField 路由到 toNode 的 toField。
+ * - 常量边：fromNode 为空 + constant 有值，常量直接作为 toNode 的 toField 入边
+ *   （无源节点、天然就绪，AND 汇聚照常）。constant 必须 JSON 可序列化（function 入库）。
+ */
 export interface IFunctionEdge extends IBase {
   fromNode: string;
   toNode: string;
   fromField: string;
   toField: string;
+  constant?: unknown;
 }
 
 /**

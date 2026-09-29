@@ -181,6 +181,8 @@ interface IRelationField extends IComplexField {
 - **Function 本质是一个有向图**：`IAtomNode`（节点）+ `IFunctionEdge`（数据流边）+ entry/output。
 - **IAtomNode（原子操作）不入库**：由引擎在启动时注册管理；规定**必须无状态**。
 - **IFunctionEdge**：`fromNode/fromField → toNode/toField` 数据流边。
+  - **节点边**：fromNode 非空，值从 fromNode 的 fromField 路由到 toNode 的 toField。
+  - **常量边**：fromNode 为空 + `constant` 有值，常量直接作为 toNode 的 toField 入边（无源节点、天然就绪，AND 汇聚照常）；constant 必须 JSON 可序列化（function 入库）。**常量由边承载，而非定制原子**——原子无状态全局共享，值必须表达在可序列化的图数据里。
 - **IFunction**：`edges + entry + output`。
   - `entry`：入口节点。
   - `output`：输出节点（指向节点 id）——**该节点执行完成后视作整个 function 执行完成**，其**全部 outputs 字段合并**作为 function 的返回值。
@@ -485,4 +487,5 @@ interface IRelationField extends IComplexField {
 - schema 子协议：内置 CRUD 接口的返回结构描述，采用去除校验的完整 JSONSchema 风格（每字段写 type）；对象 → O2O/M2O、数组 → M2M/O2M；`query(schema, condition, option)` 先查第一层再按 record+schema 递归装配；分页放 option 且按 model 分键 `{ <model.id>: <option> }`；CRUD 全部复用；服务端解析时做形状一致性校验（类型/字段与 Model 不匹配即报错，防前后端不配套）。
 - 执行位置：IFunction 新增 local 字段——local=true 前端本地执行、local=false/缺省以 function_id 为 key 调接口（后端执行）；内建数据操作固定后端执行；local 仅作路由决策与原子注册表无关；前后端引擎完全一致仅注册的原子接口不同（后端 IO 类、前端界面类）。
 - 执行上下文注入：IExecContext 泛型化 `IExecContext<D>`（D extends Record<string, unknown>），新增 `ctx.deps: D` 容器承载宿主注入物（后端 store、前端 history）；引擎启动注册注入物，每次执行统一注入。
-- FunctionExecutor：Function 逻辑执行器（不叫 Engine）——无副作用纯执行器；节点槽位状态机（slots/missing/status/emitted）；emit 同步路由 + 微任务派发；output 完成合并返回值 + 共享 AbortController abort 活动执行；deps 泛型注入；错误捕获返回 `{ error: { message, nodeId } }`。
+- FunctionExecutor：Function 逻辑执行器（不叫 Engine）——无副作用纯执行器；节点槽位状态机（slots/missing/status/emitted）；emit 同步路由 + 微任务派发；output 完成合并返回值 + 共享 AbortController abort 活动执行；deps 泛型注入；错误捕获返回 `{ error: { message, nodeId } }`；创建时默认注册 sys 原子（options 可扩展/禁用）；图校验错误同样 resolve 不抛。
+- 常量边：IFunctionEdge 支持 `constant?: unknown`（fromNode 空 + constant 有值 = 常量边，无源节点天然就绪，AND 汇聚照常）；constant 必须 JSON 可序列化——常量由边承载而非定制原子。

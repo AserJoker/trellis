@@ -89,9 +89,20 @@ export function createFunctionExecutor<D extends Record<string, unknown>>(
       });
     }
     for (const edge of fn.edges) {
-      const list = out.get(edge.fromNode) ?? [];
-      list.push(edge);
-      out.set(edge.fromNode, list);
+      if (edge.fromNode) {
+        // 节点边：进 outgoing 索引（emit 时路由）
+        const list = out.get(edge.fromNode) ?? [];
+        list.push(edge);
+        out.set(edge.fromNode, list);
+      } else {
+        // 常量边：直接填目标槽位（无源节点，天然就绪）
+        const target = nodes.get(edge.toNode);
+        if (!target) {
+          return { nodes, outgoing: out, error: `常量边目标节点未注册: ${edge.toNode}` };
+        }
+        target.slots.set(edge.toField, edge.constant);
+        target.missing.delete(edge.toField);
+      }
     }
     return { nodes, outgoing: out };
   }
@@ -215,7 +226,7 @@ export function createFunctionExecutor<D extends Record<string, unknown>>(
 function collectNodeIds(fn: IFunction): Set<string> {
   const ids = new Set<string>([fn.entry, fn.output]);
   for (const edge of fn.edges) {
-    ids.add(edge.fromNode);
+    if (edge.fromNode) ids.add(edge.fromNode);
     ids.add(edge.toNode);
   }
   if (fn.entry) ids.delete("");

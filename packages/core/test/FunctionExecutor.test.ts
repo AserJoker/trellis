@@ -5,19 +5,19 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createFunctionExecutor, type IAtomNode } from "../dist/index.js";
-// 常量节点：无入边，emit 一个固定值
-function constAtom(value: unknown): IAtomNode {
+import { createFunctionExecutor, type IAtomNode, type IFunctionEdge } from "../dist/index.js";
+
+/** 常量边 helper：无源节点，携带 constant。 */
+function constEdge(toNode: string, toField: string, constant: unknown): IFunctionEdge {
   return {
-    id: `const.${String(value)}`,
-    namespace: "const",
-    name: String(value),
-    version: "1.0.0",
-    inputs: [],
-    outputs: ["value"],
-    async fn(_input, ctx) {
-      ctx.emit("value", value);
-    },
+    id: `ce.${toNode}.${toField}`,
+    namespace: "test",
+    name: `ce.${toNode}.${toField}`,
+    fromNode: "",
+    fromField: "",
+    toNode,
+    toField,
+    constant,
   };
 }
 
@@ -58,27 +58,24 @@ function edge(fromNode: string, fromField: string, toNode: string, toField: stri
   };
 }
 
-test("简单图：常量 → output，返回合并值", async () => {
+test("简单图：常量边 → output，返回合并值", async () => {
   const ex = createFunctionExecutor({});
-  ex.registerAtom(constAtom("a"));
   ex.registerAtom(passAtom);
   ex.registerFunction({
     id: "test.hello",
     namespace: "test",
     name: "hello",
     local: false,
-    edges: [edge("const.a", "value", "test.pass", "value")],
-    entry: "const.a",
+    edges: [constEdge("test.pass", "value", "a")],
+    entry: "test.pass",
     output: "test.pass",
   });
   const result = await ex.execute("test.hello", {});
   assert.deepEqual(result, { value: "a" });
 });
 
-test("AND 汇聚：两个常量 → add，等待全部就绪", async () => {
+test("AND 汇聚：常量边 → add，等待全部就绪", async () => {
   const ex = createFunctionExecutor({});
-  ex.registerAtom(constAtom(1));
-  ex.registerAtom(constAtom(2));
   ex.registerAtom(addAtom);
   ex.registerAtom(passAtom);
   ex.registerFunction({
@@ -87,11 +84,11 @@ test("AND 汇聚：两个常量 → add，等待全部就绪", async () => {
     name: "sum",
     local: false,
     edges: [
-      edge("const.1", "value", "math.add", "a"),
-      edge("const.2", "value", "math.add", "b"),
+      constEdge("math.add", "a", 1),
+      constEdge("math.add", "b", 2),
       edge("math.add", "sum", "test.pass", "value"),
     ],
-    entry: "const.1",
+    entry: "math.add",
     output: "test.pass",
   });
   const result = await ex.execute("test.sum", {});
