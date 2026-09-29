@@ -302,6 +302,18 @@ interface IRelationField extends IComplexField {
 
 **职责边界**：ModelRegistry 只管**元数据**——注册/查询/系统表引导，不含数据操作。通用数据 CRUD（query 按 schema 递归装配、createOne/updateOne/deleteOne 级联写入、事务）由**独立类 DataExecutor** 承担：构造接收 `ModelRegistry`（内部取 store），以 Model 元数据 + ISchema 为输入执行数据操作。与 FunctionExecutor（执行 Function 图）并列。
 
+### 6c. DataExecutor：通用数据访问层（query 递归装配）
+
+- **职责**：基于 Model 元数据 + ISchema 的通用数据访问。构造注入 `ModelRegistry`（内部取 store 做物理读写）。与 FunctionExecutor（执行 Function 图）并列；ModelRegistry 只管元数据，数据操作全在 DataExecutor。
+- **本版实现 query**，形态 `query(modelId, schema, condition?, options?)`：
+  1. **形状一致性校验**：schema 顶层必须是 object；逐字段校验字段存在于 Model、且 schema shape 与字段类型匹配（`shapeForFieldType` ↔ `resolveShape`）——不匹配即报错（业务错误，防前后端不配套）。
+  2. **查第一层**：`store.query(modelId, condition, options?[modelId])` 拿 records（total 透传）。
+  3. **按 schema 递归装配**：schema 声明什么字段就返回什么（投影）；object 字段 → 查对侧单记录（M2O 直查对侧 `referenceField` = 本行 `relationField` 值；O2O 经中间表两跳），array 字段 → 查对侧多记录（O2M 直查；M2M 经中间表两跳），逐层递归，每行按子 schema 继续装配。
+- **中间表（O2O/M2M）两跳导航**：本行主键值 → 中间表 `associationModel` 查 `relationField` 匹配的关联行 → 取 `referenceField` 值（对侧主键）→ 对侧 `referenceModel` 按主键逐值查询。`relationField` = 中间表指向本侧的列，`referenceField` = 中间表指向对侧的列（对侧主键用 `referenceModel.primaryField`）。
+- **options 按 model 分键**：`{ <model.id>: { limit, offset } }`——顶层 model 用 `options[modelId]`，每层嵌套 model（直连与中间表）用 `options[对侧 model id]` 各自独立分页（schema 描述不了嵌套集合的分页，见 5f 节）；缺省的嵌套层不设分页上限（全量取）。
+- **返回**：`IQueryResult`——`{ total, data }`，data 形状与 schema 一一对应。
+- **留待后续**：createOne/updateOne/deleteOne 级联写入、事务（一次请求 = 一次事务）。
+
 ### 7. 系统模型的公共基础元数据（IBase）
 
 - **所有系统模型**均继承 `IBase`：
@@ -551,3 +563,4 @@ interface IRelationField extends IComplexField {
 - FunctionExecutor：Function 逻辑执行器（**类**形式，`new FunctionExecutor(deps, options?)`，非工厂+闭包）——无副作用纯执行器；节点槽位状态机（slots/missing/status/emitted）；emit 同步路由 + 微任务派发；output 完成合并返回值 + 共享 AbortController abort 活动执行；deps 泛型注入；错误捕获返回 `{ error: { message, nodeId } }`；创建时默认注册 sys 原子（options 可扩展/禁用）；图校验错误同样 resolve 不抛；监控：原子上断点暂停/resume（addBreakpoint/removeBreakpoint/listBreakpoints + resume(executionId)）、状态快照（getExecutions/getExecution/getNodeState）、事件流（on：execute-start/node-ready/node-run/node-emit/node-done/node-paused/execution-done/execution-error）。
 - 常量边：IFunctionEdge 支持 `constant?: unknown`（fromNode 空 + constant 有值 = 常量边，无源节点天然就绪，AND 汇聚照常）；constant 必须 JSON 可序列化——常量由边承载而非定制原子。
 - ModelRegistry：Model 元数据注册与查询（类形式）——virtual 直接注册内存长期持有；非 virtual 不常驻不登记、每次从 store 查询装配（热重启语义，无需先注册即可查）；系统自举表为真实表（五张 sys 表，行存 store），ModelRegistry 首次查询前惰性建表 + seed 初始行后完全自举，内存不持有系统表；装配为扁平装载（sys.model 行 + sys.field/sys.function/sys.function_edge/sys.enum_item 关联行），不做 schema 递归聚合。
+- DataExecutor：通用数据访问层（类形式，构造注入 ModelRegistry 内部取 store）——本版实现 query(modelId, schema, condition?, options?)：形状一致性校验（顶层 object + 字段存在 + shape 匹配）→ 查第一层 → 按 schema 递归装配（object → M2O 直查单记录 / O2O 经中间表两跳、array → O2M 直查多记录 / M2M 经中间表两跳：本行主键 → 中间表 relationField 匹配 → 取 referenceField 值 → 对侧主键查询）；schema 声明什么返回什么（投影）；options 按 model 分键（`{ <model.id>: { limit, offset } }`，顶层与嵌套对侧都用 options[model id]）；留待 createOne/updateOne/deleteOne 级联写入、事务。

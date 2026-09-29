@@ -163,6 +163,11 @@ export class ModelRegistry {
     return this.systemIds.has(id);
   }
 
+  /** 注入的 store（DataExecutor 等数据层从 registry 取）。无 store 时返回 undefined。 */
+  getStore(): IStore | undefined {
+    return this.store;
+  }
+
   /**
    * 注册 model。
    * - virtual：存入内存（常驻），重复注册报错。
