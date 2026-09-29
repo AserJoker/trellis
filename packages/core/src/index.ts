@@ -3,6 +3,7 @@ export * from "./IField.js";
 export * from "./IModel.js";
 export * from "./IFunction.js";
 export * from "./IStore.js";
+export * from "./ISchema.js";
 export * from "./FunctionExecutor.js";
 export * from "./ModelRegistry.js";
 export * from "./models/sysModels.js";

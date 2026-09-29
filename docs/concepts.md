@@ -300,6 +300,8 @@ interface IRelationField extends IComplexField {
 
 **装配（扁平装载）**：`getModel(id)` 查到 `sys.model` 行后，按 namespace 点分关系从 `sys.field`/`sys.function`/`sys.function_edge`/`sys.enum_item` 取关联行，组装完整 IModel。本阶段**不做 schema 递归聚合**（那是数据 CRUD 引擎的事）。
 
+**职责边界**：ModelRegistry 只管**元数据**——注册/查询/系统表引导，不含数据操作。通用数据 CRUD（query 按 schema 递归装配、createOne/updateOne/deleteOne 级联写入、事务）由**独立类 DataExecutor** 承担：构造接收 `ModelRegistry`（内部取 store），以 Model 元数据 + ISchema 为输入执行数据操作。与 FunctionExecutor（执行 Function 图）并列。
+
 ### 7. 系统模型的公共基础元数据（IBase）
 
 - **所有系统模型**均继承 `IBase`：
