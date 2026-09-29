@@ -183,6 +183,7 @@ interface IRelationField extends IComplexField {
 - **IFunctionEdge**：`fromNode/fromField → toNode/toField` 数据流边。
   - **节点边**：fromNode 非空，值从 fromNode 的 fromField 路由到 toNode 的 toField。
   - **常量边**：fromNode 为空 + `constant` 有值，常量直接作为 toNode 的 toField 入边（无源节点、天然就绪，AND 汇聚照常）；constant 必须 JSON 可序列化（function 入库）。**常量由边承载，而非定制原子**——原子无状态全局共享，值必须表达在可序列化的图数据里。
+  - **多输出（fan-out）**：一个节点的输出可连到多个下游节点输入（多条出边 fromField 相同）；也可连到 AND 汇聚节点的多个不同输入（如 add 的 a/b 都来自同一输出）。emit 时按 fromField 匹配全部出边逐个填槽。
 - **IFunction**：`edges + entry + output`。
   - `entry`：入口节点。
   - `output`：输出节点（指向节点 id）——**该节点执行完成后视作整个 function 执行完成**，其**全部 outputs 字段合并**作为 function 的返回值。

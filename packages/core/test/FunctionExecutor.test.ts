@@ -95,6 +95,90 @@ test("AND 汇聚：常量边 → add，等待全部就绪", async () => {
   assert.deepEqual(result, { value: 3 });
 });
 
+test("多输出：一个节点输出连多个下游", async () => {
+  const ex = createFunctionExecutor({});
+  // 源节点 emit 一个值 → 两个 pass 节点并联
+  ex.registerAtom({
+    id: "test.src",
+    namespace: "test",
+    name: "src",
+    version: "1.0.0",
+    inputs: [],
+    outputs: ["value"],
+    async fn(_input, ctx) {
+      ctx.emit("value", 7);
+    },
+  });
+  ex.registerAtom({
+    id: "test.pass1",
+    namespace: "test",
+    name: "pass1",
+    version: "1.0.0",
+    inputs: ["value"],
+    outputs: ["value"],
+    async fn(input, ctx) {
+      ctx.emit("value", input.value);
+    },
+  });
+  ex.registerAtom({
+    id: "test.pass2",
+    namespace: "test",
+    name: "pass2",
+    version: "1.0.0",
+    inputs: ["value"],
+    outputs: ["value"],
+    async fn(input, ctx) {
+      ctx.emit("value", input.value);
+    },
+  });
+  ex.registerFunction({
+    id: "test.fanout",
+    namespace: "test",
+    name: "fanout",
+    local: false,
+    edges: [
+      edge("test.src", "value", "test.pass1", "value"),
+      edge("test.src", "value", "test.pass2", "value"),
+    ],
+    entry: "test.src",
+    output: "test.pass1",
+  });
+  const result = await ex.execute("test.fanout", {});
+  assert.deepEqual(result, { value: 7 });
+});
+
+test("多输出：同一输出连 AND 汇聚节点的多个输入", async () => {
+  const ex = createFunctionExecutor({});
+  ex.registerAtom({
+    id: "test.nine",
+    namespace: "test",
+    name: "nine",
+    version: "1.0.0",
+    inputs: [],
+    outputs: ["value"],
+    async fn(_input, ctx) {
+      ctx.emit("value", 9);
+    },
+  });
+  ex.registerAtom(addAtom);
+  ex.registerAtom(passAtom);
+  ex.registerFunction({
+    id: "test.samedouble",
+    namespace: "test",
+    name: "samedouble",
+    local: false,
+    edges: [
+      edge("test.nine", "value", "math.add", "a"),
+      edge("test.nine", "value", "math.add", "b"),
+      edge("math.add", "sum", "test.pass", "value"),
+    ],
+    entry: "test.nine",
+    output: "test.pass",
+  });
+  const result = await ex.execute("test.samedouble", {});
+  assert.deepEqual(result, { value: 18 });
+});
+
 test("deps 注入：原子通过 ctx.deps 访问宿主注入物", async () => {
   const store = { get: () => 42 };
   const ex = createFunctionExecutor({ store });
