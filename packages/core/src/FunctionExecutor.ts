@@ -1,9 +1,20 @@
 import type { IAtomNode, IExecContext, IFunction } from "./IFunction.js";
+import { sysAtoms } from "./atoms/index.js";
 
 /**
  * 执行结果：output 节点全部 outputs 字段合并；或错误（不向外抛）。
  */
 export type ExecResult = Record<string, unknown>;
+
+/**
+ * 创建选项：
+ * - atoms：追加自定义原子（默认注册 sys 通用原子后追加）。
+ * - disableDefaultAtoms：true 时不注册 sys 通用原子（只注册 atoms 里给的）。
+ */
+export interface CreateExecutorOptions {
+  atoms?: IAtomNode[];
+  disableDefaultAtoms?: boolean;
+}
 
 /**
  * FunctionExecutor：Function 的逻辑执行器。
@@ -41,20 +52,33 @@ interface NodeState {
 
 export function createFunctionExecutor<D extends Record<string, unknown>>(
   deps: D,
+  options: CreateExecutorOptions = {},
 ): FunctionExecutor<D> {
   const atoms = new Map<string, IAtomNode>();
   const functions = new Map<string, IFunction>();
 
+  // 自动加载：默认注册 sys 通用原子（可用 disableDefaultAtoms 关闭），再追加自定义原子
+  if (!options.disableDefaultAtoms) {
+    for (const atom of sysAtoms) atoms.set(atom.id, atom);
+  }
+  for (const atom of options.atoms ?? []) {
+    if (atoms.has(atom.id)) {
+      throw new Error(`原子节点重复注册: ${atom.id}`);
+    }
+    atoms.set(atom.id, atom);
+  }
+
   function buildGraph(fn: IFunction): {
     nodes: Map<string, NodeState>;
     outgoing: Map<string, IFunction["edges"][number][]>;
+    error?: string;
   } {
     const nodes = new Map<string, NodeState>();
     const out = new Map<string, IFunction["edges"][number][]>();
     for (const nodeId of collectNodeIds(fn)) {
       const node = atoms.get(nodeId);
       if (!node) {
-        throw new Error(`function ${fn.id}: 原子节点未注册: ${nodeId}`);
+        return { nodes, outgoing: out, error: `原子节点未注册: ${nodeId}` };
       }
       nodes.set(nodeId, {
         node,
@@ -84,7 +108,10 @@ export function createFunctionExecutor<D extends Record<string, unknown>>(
       return { error: { message: `function ${id} 缺少 entry/output`, nodeId: "" } };
     }
 
-    const { nodes, outgoing: outMap } = buildGraph(fn);
+    const { nodes, outgoing: outMap, error } = buildGraph(fn);
+    if (error) {
+      return { error: { message: `function ${fn.id}: ${error}`, nodeId: "" } };
+    }
     const entry = nodes.get(fn.entry);
     const output = nodes.get(fn.output);
     if (!entry || !output) {

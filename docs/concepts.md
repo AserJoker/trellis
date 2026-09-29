@@ -224,6 +224,7 @@ interface IRelationField extends IComplexField {
 - **职责**：执行 IFunction 编排图。本质是**无副作用的纯执行器**——副作用全部来自外部注入的 `deps` 和原子接口（IAtomNode），执行器自身不碰任何 IO/状态。
 - **命名**：不叫 Engine（太泛），就是 Function 的执行器——`FunctionExecutor`，`createFunctionExecutor()`。
 - **API**：
+  - `createFunctionExecutor(deps, options?)`：创建执行器——**默认自动注册 sys 通用原子**（if/数学/逻辑/比较）；options 可追加自定义原子（`atoms`）或禁用默认（`disableDefaultAtoms`）。
   - `registerAtom(node)`：注册原子操作（id 重复报错）。
   - `registerFunction(fn)`：注册 function（id 重复报错）。
   - `execute(id, params)`：执行 function，resolve output 节点全部 outputs 字段合并；params 直接作为 entry 节点的 input。
@@ -232,7 +233,7 @@ interface IRelationField extends IComplexField {
 - **emit 同步路由**：节点 fn 中 `ctx.emit(field, value)` 是同步操作——记录 emitted、沿出边填下游槽位、下游就绪则入 readyQueue。**派发用微任务**（避免 emit 深递归导致调用栈溢出）。
 - **output 完成 + abort**：output 节点 done → 其 emitted 全部字段合并作为返回值；同时 `controller.abort()` 终止全部活动执行（并行分支被取消）。**一次 execute 一个共享 AbortController**，所有节点 ctx.signal 共用。
 - **deps 注入**：`createFunctionExecutor<D>(deps)` 持有 deps，每个执行上下文 `ctx.deps` 直接引用（类型由 D 声明）。
-- **错误处理**：fn 抛错/reject → 捕获 → 整个 function 失败 → resolve `{ error: { message, nodeId } }`，不向外抛；abort 导致的提前返回不算错误（正常取消）。
+- **错误处理**：fn 抛错/reject → 捕获 → 整个 function 失败 → resolve `{ error: { message, nodeId } }`，不向外抛；abort 导致的提前返回不算错误（正常取消）。**图校验错误（原子未注册等）同样 resolve 错误而非抛出**——错误捕获语义统一：execute 永远不向外抛。
 - **与通讯协议衔接**：错误形状 `{ error: {...} }` 由 server 映射为协议层 `{ ok:false, code, message }`。
 
 **本版范围**：注册表 + 图校验（entry/output/边引用节点都在原子注册表）+ execute + AND 汇聚 + emit 同步路由 + output 完成/abort + deps + 错误捕获 + entry 参数注入。

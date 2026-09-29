@@ -6,7 +6,6 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   createFunctionExecutor,
-  sysAtoms,
   type IAtomNode,
   type IFunction,
 } from "../dist/index.js";
@@ -51,11 +50,83 @@ function edge(fromNode: string, fromField: string, toNode: string, toField: stri
 
 function build(fn: IFunction) {
   const ex = createFunctionExecutor({});
-  for (const atom of sysAtoms) ex.registerAtom(atom);
   ex.registerAtom(passAtom);
   ex.registerFunction(fn);
   return ex;
 }
+
+test("自动加载：sys 原子默认可用（无需手动注册）", async () => {
+  const ex = build({
+    id: "t.auto",
+    namespace: "t",
+    name: "auto",
+    local: false,
+    edges: [
+      edge("const.4", "value", "sys.add", "a"),
+      edge("const.1", "value", "sys.add", "b"),
+      edge("sys.add", "result", "test.pass", "value"),
+    ],
+    entry: "const.4",
+    output: "test.pass",
+  });
+  ex.registerAtom(constAtom(4));
+  ex.registerAtom(constAtom(1));
+  const result = await ex.execute("t.auto", {});
+  assert.deepEqual(result, { value: 5 });
+});
+
+test("disableDefaultAtoms：关闭默认注册后 sys 原子不可用", async () => {
+  const ex = createFunctionExecutor({}, { disableDefaultAtoms: true });
+  ex.registerAtom(constAtom(1));
+  ex.registerAtom(constAtom(2));
+  ex.registerAtom(passAtom);
+  ex.registerFunction({
+    id: "t.nosys",
+    namespace: "t",
+    name: "nosys",
+    local: false,
+    edges: [
+      edge("const.1", "value", "sys.add", "a"),
+      edge("const.2", "value", "sys.add", "b"),
+      edge("sys.add", "result", "test.pass", "value"),
+    ],
+    entry: "const.1",
+    output: "test.pass",
+  });
+  const result = await ex.execute("t.nosys", {});
+  assert.ok("error" in result, "sys.add 未注册应报错");
+});
+
+test("options.atoms：追加自定义原子", async () => {
+  const doubleAtom: IAtomNode = {
+    id: "custom.double",
+    namespace: "custom",
+    name: "double",
+    version: "1.0.0",
+    inputs: ["value"],
+    outputs: ["result"],
+    async fn(input, ctx) {
+      ctx.emit("result", (input.value as number) * 2);
+    },
+  };
+  const ex = createFunctionExecutor({}, { atoms: [doubleAtom] });
+  ex.registerAtom(constAtom(21));
+  ex.registerAtom(passAtom);
+  ex.registerFunction({
+    id: "t.custom",
+    namespace: "t",
+    name: "custom",
+    local: false,
+    edges: [
+      edge("const.21", "value", "custom.double", "value"),
+      edge("custom.double", "result", "test.pass", "value"),
+    ],
+    entry: "const.21",
+    output: "test.pass",
+  });
+  const result = await ex.execute("t.custom", {});
+  assert.deepEqual(result, { value: 42 });
+});
 
 test("sys.add：数学原子", async () => {
   const ex = build({
