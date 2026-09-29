@@ -5,7 +5,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createFunctionExecutor, type IAtomNode, type IFunctionEdge } from "../dist/index.js";
+import { FunctionExecutor, type IAtomNode, type IFunctionEdge } from "../dist/index.js";
 
 /** 常量边 helper：无源节点，携带 constant。 */
 function constEdge(toNode: string, toField: string, constant: unknown): IFunctionEdge {
@@ -59,7 +59,7 @@ function edge(fromNode: string, fromField: string, toNode: string, toField: stri
 }
 
 test("简单图：常量边 → output，返回合并值", async () => {
-  const ex = createFunctionExecutor({});
+  const ex = new FunctionExecutor({});
   ex.registerAtom(passAtom);
   ex.registerFunction({
     id: "test.hello",
@@ -75,7 +75,7 @@ test("简单图：常量边 → output，返回合并值", async () => {
 });
 
 test("AND 汇聚：常量边 → add，等待全部就绪", async () => {
-  const ex = createFunctionExecutor({});
+  const ex = new FunctionExecutor({});
   ex.registerAtom(addAtom);
   ex.registerAtom(passAtom);
   ex.registerFunction({
@@ -96,7 +96,7 @@ test("AND 汇聚：常量边 → add，等待全部就绪", async () => {
 });
 
 test("多输出：一个节点输出连多个下游", async () => {
-  const ex = createFunctionExecutor({});
+  const ex = new FunctionExecutor({});
   // 源节点 emit 一个值 → 两个 pass 节点并联
   ex.registerAtom({
     id: "test.src",
@@ -148,7 +148,7 @@ test("多输出：一个节点输出连多个下游", async () => {
 });
 
 test("多输出：同一输出连 AND 汇聚节点的多个输入", async () => {
-  const ex = createFunctionExecutor({});
+  const ex = new FunctionExecutor({});
   ex.registerAtom({
     id: "test.nine",
     namespace: "test",
@@ -181,7 +181,7 @@ test("多输出：同一输出连 AND 汇聚节点的多个输入", async () => 
 
 test("deps 注入：原子通过 ctx.deps 访问宿主注入物", async () => {
   const store = { get: () => 42 };
-  const ex = createFunctionExecutor({ store });
+  const ex = new FunctionExecutor({ store });
   ex.registerAtom({
     id: "test.store",
     namespace: "test",
@@ -209,7 +209,7 @@ test("deps 注入：原子通过 ctx.deps 访问宿主注入物", async () => {
 });
 
 test("错误捕获：原子抛错 → function 返回错误（不向外抛）", async () => {
-  const ex = createFunctionExecutor({});
+  const ex = new FunctionExecutor({});
   ex.registerAtom({
     id: "test.boom",
     namespace: "test",
@@ -238,7 +238,7 @@ test("错误捕获：原子抛错 → function 返回错误（不向外抛）", 
 });
 
 test("并行分支 + output 完成后 abort 活动执行", async () => {
-  const ex = createFunctionExecutor({});
+  const ex = new FunctionExecutor({});
   // 慢分支：等 50ms 后 emit（会被 abort）
   ex.registerAtom({
     id: "test.slow",
@@ -284,7 +284,7 @@ test("并行分支 + output 完成后 abort 活动执行", async () => {
 });
 
 test("惰性调度：等待是同步状态，不预建 Promise", async () => {
-  const ex = createFunctionExecutor({});
+  const ex = new FunctionExecutor({});
   // 原子 A 永不 emit → 下游 B 永久等待
   ex.registerAtom({
     id: "test.never",

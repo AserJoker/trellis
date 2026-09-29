@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  createFunctionExecutor,
+  FunctionExecutor,
   type IAtomNode,
   type IFunction,
   type IFunctionEdge,
@@ -66,7 +66,7 @@ function constEdge(toNode: string, toField: string, constant: unknown): IFunctio
 }
 
 function build(fn: IFunction) {
-  const ex = createFunctionExecutor({});
+  const ex = new FunctionExecutor({});
   ex.registerAtom(mkPass("test.pass"));
   ex.registerAtom(mkPass("test.passA"));
   ex.registerAtom(mkPass("test.passB"));

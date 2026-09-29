@@ -225,12 +225,12 @@ interface IRelationField extends IComplexField {
 ### 6a. FunctionExecutor：Function 的逻辑执行器
 
 - **职责**：执行 IFunction 编排图。本质是**无副作用的纯执行器**——副作用全部来自外部注入的 `deps` 和原子接口（IAtomNode），执行器自身不碰任何 IO/状态。
-- **命名**：不叫 Engine（太泛），就是 Function 的执行器——`FunctionExecutor`，`createFunctionExecutor()`。
+- **形式**：**类**（非工厂+闭包）——`new FunctionExecutor<D>(deps, options?)`，状态为实例字段 + 每次 execute 独立的执行态对象，便于管理、扩展与监控。
 - **API**：
-  - `createFunctionExecutor(deps, options?)`：创建执行器——**默认自动注册 sys 通用原子**；options 可追加自定义原子（`atoms`）或禁用默认（`disableDefaultAtoms`）。
+  - `new FunctionExecutor(deps, options?)`：创建执行器——**默认自动注册 sys 通用原子**；options 可追加自定义原子（`atoms`）或禁用默认（`disableDefaultAtoms`）。
   - `registerAtom(node)`：注册原子操作（id 重复报错）。
   - `registerFunction(fn)`：注册 function（id 重复报错）。
-  - `execute(id, params)`：执行 function，resolve output 节点全部 outputs 字段合并；params 直接作为 entry 节点的 input。
+  - `execute(id, params)`：执行 function，resolve output 节点全部 outputs 字段合并；params 直接作为 entry 节点的 input。**每次 execute 是独立执行单元（executionId）**。
 - **sys 通用原子（atoms/，引擎默认注册）**：
   - **控制流**：`sys.if`（condition 选择性输出 then/else 令牌）、`sys.switch`（多路分支：`value` 按 `cases`（case 值→输出字段名）匹配 emit 对应字段令牌，无匹配 emit `default` 字段令牌；case 值统一转字符串比对）、`sys.coalesce`（空值兜底：`array` 取首个非 null/undefined emit result）。
   - **数学**：`sys.add/sub/mul/div`（inputs={a,b}，outputs={result}）。
@@ -242,7 +242,7 @@ interface IRelationField extends IComplexField {
   - **集合字段**：`sys.mapField`（{array,key}→字段值数组）、`sys.filterByField`（{array,key,value}→等值过滤）。
   - **类型转换**：`sys.toString`、`sys.toNumber`、`sys.parseJson`（text→值）、`sys.stringify`（值→JSON 字符串）。
   - **约定**：可选入边用常量边提供 `undefined`，fn 自行判空（如 switch 的 default 不提供时）；原子全部**无状态、无回调**（map/reduce 等需回调的依赖 Call，留待后续）。
-- **节点状态（槽位状态机）**：每节点维护 `slots`（已收到入边值）+ `missing`（未就绪入边字段）+ `join`（汇聚模式）+ `status`（pending/running/done/aborted）+ `emitted`（本节点 emit 过的输出字段）。
+- **节点状态（槽位状态机）**：每节点维护 `slots`（已收到入边值）+ `missing`（未就绪入边字段）+ `join`（汇聚模式）+ `status`（pending/running/**paused**/done/aborted）+ `emitted`（本节点 emit 过的输出字段）。
 - **汇聚模式（IAtomNode.join）**：缺省 `"and"`（AND 汇聚，`missing` 为空即就绪）；`"or"` = **任一入边到达即执行**（事件驱动，`slots.size > 0` 即就绪）。OR 节点的 fn 自行处理槽位不完整（如 `input.a ?? input.b`）。**OR 只触发一次**：就绪判定带 `status === "pending"` 检查，先到触发后到只填槽不重执行。
 - **AND 汇聚**：`missing` 为空即就绪；任一入边缺 → 保持等待。等待是**纯同步状态**（只有 slots/missing 数据），**不创建任何 Promise 等待器**——未就绪节点零异步资源，无泄漏。
 - **emit 同步路由**：节点 fn 中 `ctx.emit(field, value)` 是同步操作——记录 emitted、沿出边填下游槽位、下游就绪则入 readyQueue。**派发用微任务**（避免 emit 深递归导致调用栈溢出）。
@@ -251,7 +251,21 @@ interface IRelationField extends IComplexField {
 - **错误处理**：fn 抛错/reject → 捕获 → 整个 function 失败 → resolve `{ error: { message, nodeId } }`，不向外抛；abort 导致的提前返回不算错误（正常取消）。**图校验错误（原子未注册等）同样 resolve 错误而非抛出**——错误捕获语义统一：execute 永远不向外抛。
 - **与通讯协议衔接**：错误形状 `{ error: {...} }` 由 server 映射为协议层 `{ ok:false, code, message }`。
 
-**本版范围**：注册表 + 图校验（entry/output/边引用节点都在原子注册表）+ execute + AND/OR 汇聚 + emit 同步路由 + output 完成/abort + deps + 错误捕获 + entry 参数注入 + sys 通用原子（控制流/数学/逻辑/比较/record/集合/转换）。
+**监控 / 调试能力（类实例方法）**
+
+- **断点暂停（原子上断点）**：
+  - `addBreakpoint(functionId, nodeId)` / `removeBreakpoint(functionId, nodeId)` / `listBreakpoints()`——断点挂在**指定 function 的指定原子「执行前」**。
+  - 命中语义：节点就绪待派发时命中断点 → 该节点与整个 execution 转 `paused`，**execute 的 Promise 保持 pending 不 resolve**（惰性：暂停的节点不派发、零异步资源）；`resume(executionId)` 放行当前全部暂停节点继续，之后调度照常、再遇断点再停。
+  - 用途：调试器在关键原子处停下查看/修改数据流状态，再继续执行。
+- **状态快照（查询数据流状态）**：
+  - `getExecutions()` / `getExecution(executionId)`：活跃执行列表/单个（executionId + functionId + status + 各节点快照）。
+  - `getNodeState(executionId, nodeId)`：单节点快照——`{ nodeId, status, join, slots, missing, emitted }`（值拷贝，监控端安全读）。
+  - 执行完成（done/error/aborted）后从活跃执行移除。
+- **事件流（监控）**：`on(event, listener)` 订阅，返回退订函数。事件表：
+  - `execute-start`（executionId/functionId/params）、`node-ready`、`node-run`、`node-emit`（field/value）、`node-done`、`node-paused`、`execution-done`（result）、`execution-error`（error）。
+  - 手写简易 emitter（core 零依赖），一次 execute 的典型序列：`execute-start → node-ready → node-run → node-emit → node-done → … → execution-done`。
+
+**本版范围**：注册表 + 图校验（entry/output/边引用节点都在原子注册表）+ execute + AND/OR 汇聚 + emit 同步路由 + output 完成/abort + deps + 错误捕获 + entry 参数注入 + sys 通用原子（控制流/数学/逻辑/比较/record/集合/转换）+ 类形式 + 断点暂停/resume + 状态快照 + 事件流。
 **留待后续**：`Call` 原子（编排图调 function，含回调型原子 map/reduce 的前置）、环/死锁检测、执行超时、图校验增强。
 
 ### 7. 系统模型的公共基础元数据（IBase）
@@ -500,5 +514,5 @@ interface IRelationField extends IComplexField {
 - schema 子协议：内置 CRUD 接口的返回结构描述，采用去除校验的完整 JSONSchema 风格（每字段写 type）；对象 → O2O/M2O、数组 → M2M/O2M；`query(schema, condition, option)` 先查第一层再按 record+schema 递归装配；分页放 option 且按 model 分键 `{ <model.id>: <option> }`；CRUD 全部复用；服务端解析时做形状一致性校验（类型/字段与 Model 不匹配即报错，防前后端不配套）。
 - 执行位置：IFunction 新增 local 字段——local=true 前端本地执行、local=false/缺省以 function_id 为 key 调接口（后端执行）；内建数据操作固定后端执行；local 仅作路由决策与原子注册表无关；前后端引擎完全一致仅注册的原子接口不同（后端 IO 类、前端界面类）。
 - 执行上下文注入：IExecContext 泛型化 `IExecContext<D>`（D extends Record<string, unknown>），新增 `ctx.deps: D` 容器承载宿主注入物（后端 store、前端 history）；引擎启动注册注入物，每次执行统一注入。
-- FunctionExecutor：Function 逻辑执行器（不叫 Engine）——无副作用纯执行器；节点槽位状态机（slots/missing/status/emitted）；emit 同步路由 + 微任务派发；output 完成合并返回值 + 共享 AbortController abort 活动执行；deps 泛型注入；错误捕获返回 `{ error: { message, nodeId } }`；创建时默认注册 sys 原子（options 可扩展/禁用）；图校验错误同样 resolve 不抛。
+- FunctionExecutor：Function 逻辑执行器（**类**形式，`new FunctionExecutor(deps, options?)`，非工厂+闭包）——无副作用纯执行器；节点槽位状态机（slots/missing/status/emitted）；emit 同步路由 + 微任务派发；output 完成合并返回值 + 共享 AbortController abort 活动执行；deps 泛型注入；错误捕获返回 `{ error: { message, nodeId } }`；创建时默认注册 sys 原子（options 可扩展/禁用）；图校验错误同样 resolve 不抛；监控：原子上断点暂停/resume（addBreakpoint/removeBreakpoint/listBreakpoints + resume(executionId)）、状态快照（getExecutions/getExecution/getNodeState）、事件流（on：execute-start/node-ready/node-run/node-emit/node-done/node-paused/execution-done/execution-error）。
 - 常量边：IFunctionEdge 支持 `constant?: unknown`（fromNode 空 + constant 有值 = 常量边，无源节点天然就绪，AND 汇聚照常）；constant 必须 JSON 可序列化——常量由边承载而非定制原子。

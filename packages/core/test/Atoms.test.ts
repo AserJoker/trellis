@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  createFunctionExecutor,
+  FunctionExecutor,
   type IAtomNode,
   type IFunction,
   type IFunctionEdge,
@@ -51,7 +51,7 @@ function constEdge(toNode: string, toField: string, constant: unknown): IFunctio
 }
 
 function build(fn: IFunction) {
-  const ex = createFunctionExecutor({});
+  const ex = new FunctionExecutor({});
   ex.registerAtom(passAtom);
   ex.registerFunction(fn);
   return ex;
@@ -214,7 +214,7 @@ test("sys.if：else 分支激活，then 互斥等待（常量边 condition）", 
 });
 
 test("disableDefaultAtoms：关闭默认注册后 sys 原子不可用", async () => {
-  const ex = createFunctionExecutor({}, { disableDefaultAtoms: true });
+  const ex = new FunctionExecutor({}, { disableDefaultAtoms: true });
   ex.registerAtom(passAtom);
   ex.registerFunction({
     id: "t.nosys",
@@ -245,7 +245,7 @@ test("options.atoms：追加自定义原子", async () => {
       ctx.emit("result", (input.value as number) * 2);
     },
   };
-  const ex = createFunctionExecutor({}, { atoms: [doubleAtom] });
+  const ex = new FunctionExecutor({}, { atoms: [doubleAtom] });
   ex.registerAtom(passAtom);
   ex.registerFunction({
     id: "t.custom",
