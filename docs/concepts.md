@@ -268,6 +268,38 @@ interface IRelationField extends IComplexField {
 **本版范围**：注册表 + 图校验（entry/output/边引用节点都在原子注册表）+ execute + AND/OR 汇聚 + emit 同步路由 + output 完成/abort + deps + 错误捕获 + entry 参数注入 + sys 通用原子（控制流/数学/逻辑/比较/record/集合/转换）+ 类形式 + 断点暂停/resume + 状态快照 + 事件流。
 **留待后续**：`Call` 原子（编排图调 function，含回调型原子 map/reduce 的前置）、环/死锁检测、执行超时、图校验增强。
 
+### 6b. ModelRegistry：Model 元数据的注册与查询 + 系统自举表
+
+**注册来源（两类 model）**
+
+- **virtual = true**：**直接注册进内存，长期持有**（绑定 class 的 native model，不入库）。重复注册报错。
+- **非 virtual**：**不常驻内存、不登记**——物理表是权威，每次 `getModel(id)` 从注入的 IStore 查询装配。**无 store 时非 virtual 不可查（返回 undefined）**。
+  - 理由（热重启语义）：数据库已有数据但 Registry 内存无登记记录时，若依赖「先注册才能查」会查不到已存在的 model。因此非 virtual 无需先 `registerModel` 即可查询。
+
+**API（类形式，仿 FunctionExecutor）**
+
+- `new ModelRegistry({ store?, disableDefaultModels? })`：store 构造注入；`disableDefaultModels` 关系统自举表。
+- `registerModel(model)` / `unregisterModel(id)`：注册（virtual 存内存，非 virtual 仅校验 id 一致性）/ 移除（仅 virtual 内存持有）。
+- `getModel(id)` / `hasModel(id)`：virtual 直查内存；非 virtual 从 store 查询装配。
+- `listModels()`：内存 virtual + store 非 virtual 全量（含系统表）。
+- `isSystemModel(id)`：是否系统自举表。
+
+**系统自举表（五张 sys 表，真实表非 virtual）**
+
+| 表 id | 语义 | 关系字段（store=false） |
+|---|---|---|
+| `sys.model` | 数据模型元数据 | functions（O2M→sys.function） |
+| `sys.field` | 字段元数据 | items（O2M→sys.enum_item） |
+| `sys.function` | Function 元数据 | edges（O2M→sys.function_edge） |
+| `sys.enum_item` | 枚举项 | — |
+| `sys.function_edge` | Function 的边（每行一条 IFunctionEdge） | — |
+
+- **真实表**：行数据存 store。ModelRegistry 首次查询前（惰性幂等）调用 `ensureSystemTables`：**硬编码建表**（表结构来自 sysModels 元数据，`IModel.fields → IColumn[]`，关系字段/array 不落库，enum 列）→ **seed 初始行**（每张表独立判断空，热重启已有数据则跳过）。之后**完全自举**：运行时一切查询从 store 读系统表，内存不持有系统表。
+- **id 点分一致性**：`sys.field` 的 namespace = 所属 model 的 id（如 `sys.user`），字段行 id = `sys.user.username`——field 行天然挂在 model 下；`sys.function` 同理（`sys.user.login`）；`sys.function_edge` 挂在 function 下（`sys.user.login.e0`）；`sys.enum_item` 挂在 field 下（`sys.user.status.active`）。
+- **constant 序列化**：`sys.function_edge.constant` 为 text 列，存 JSON 字符串；装配时反序列化（`JSON.parse`）。
+
+**装配（扁平装载）**：`getModel(id)` 查到 `sys.model` 行后，按 namespace 点分关系从 `sys.field`/`sys.function`/`sys.function_edge`/`sys.enum_item` 取关联行，组装完整 IModel。本阶段**不做 schema 递归聚合**（那是数据 CRUD 引擎的事）。
+
 ### 7. 系统模型的公共基础元数据（IBase）
 
 - **所有系统模型**均继承 `IBase`：
@@ -516,3 +548,4 @@ interface IRelationField extends IComplexField {
 - 执行上下文注入：IExecContext 泛型化 `IExecContext<D>`（D extends Record<string, unknown>），新增 `ctx.deps: D` 容器承载宿主注入物（后端 store、前端 history）；引擎启动注册注入物，每次执行统一注入。
 - FunctionExecutor：Function 逻辑执行器（**类**形式，`new FunctionExecutor(deps, options?)`，非工厂+闭包）——无副作用纯执行器；节点槽位状态机（slots/missing/status/emitted）；emit 同步路由 + 微任务派发；output 完成合并返回值 + 共享 AbortController abort 活动执行；deps 泛型注入；错误捕获返回 `{ error: { message, nodeId } }`；创建时默认注册 sys 原子（options 可扩展/禁用）；图校验错误同样 resolve 不抛；监控：原子上断点暂停/resume（addBreakpoint/removeBreakpoint/listBreakpoints + resume(executionId)）、状态快照（getExecutions/getExecution/getNodeState）、事件流（on：execute-start/node-ready/node-run/node-emit/node-done/node-paused/execution-done/execution-error）。
 - 常量边：IFunctionEdge 支持 `constant?: unknown`（fromNode 空 + constant 有值 = 常量边，无源节点天然就绪，AND 汇聚照常）；constant 必须 JSON 可序列化——常量由边承载而非定制原子。
+- ModelRegistry：Model 元数据注册与查询（类形式）——virtual 直接注册内存长期持有；非 virtual 不常驻不登记、每次从 store 查询装配（热重启语义，无需先注册即可查）；系统自举表为真实表（五张 sys 表，行存 store），ModelRegistry 首次查询前惰性建表 + seed 初始行后完全自举，内存不持有系统表；装配为扁平装载（sys.model 行 + sys.field/sys.function/sys.function_edge/sys.enum_item 关联行），不做 schema 递归聚合。
